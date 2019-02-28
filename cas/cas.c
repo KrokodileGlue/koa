@@ -12,46 +12,74 @@ sym
 sym_new(enum sym_type type)
 {
 	sym sym = malloc(sizeof *sym);
+
 	memset(sym, 0, sizeof *sym);
 	sym->type = type;
 	sym->sign = 1;
+
 	return sym;
 }
 
 int
-sym_cmp(const sym a, const sym b)
+sym_cmp(sym a, sym b)
 {
-	if (a->type != SYM_INT || b->type != SYM_INT)
+	if (a->type != SYM_NUM || b->type != SYM_NUM)
 		return false;
 
-	return sym_cmp_buf(a->buf, b->buf);
+	while (math_ucmp(a->exp, b->exp) < 0) {
+ 		math_uinc(&a->exp);
+		math_ushift(&a->sig);
+	}
+
+	while (math_ucmp(a->exp, b->exp) > 0) {
+		math_uinc(&b->exp);
+		math_ushift(&b->sig);
+	}
+
+	return math_ucmp(a->sig, b->sig);
 }
 
 sym
-sym_add(const sym a, const sym b)
+sym_add(sym a, sym b)
 {
-	if (a->type != SYM_INT || b->type != SYM_INT)
-		return NULL;
+	sym sym = sym_new(SYM_NUM);
 
-	sym sym = sym_new(SYM_INT);
+	if (a->type != SYM_NUM || b->type != SYM_NUM) {
+		sym->type = SYM_SUM;
+		sym->a = sym_copy(a);
+		sym->b = sym_copy(b);
+		return sym;
+	}
+
+	while (math_ucmp(a->exp, b->exp) < 0) {
+ 		math_uinc(&a->exp);
+		math_ushift(&a->sig);
+	}
+
+	while (math_ucmp(a->exp, b->exp) > 0) {
+		math_uinc(&b->exp);
+		math_ushift(&b->sig);
+	}
+
+	sym->exp = math_ucopy(a->exp);
 
 	if (a->sign && b->sign) {
-		sym_add_buf(a->buf, b->buf, sym->buf);
+		sym->sig = math_uadd(a->sig, b->sig);
 		return sym;
 	}
 
 	if (!a->sign && !b->sign) {
-		sym_add_buf(a->buf, b->buf, sym->buf);
+		sym->sig = math_uadd(a->sig, b->sig);
 		sym->sign = 0;
 		return sym;
 	}
 
 	if (!a->sign && b->sign) {
 		if (sym_cmp(a, b) > 0) {
-			sym_sub_buf(a->buf, b->buf, sym->buf);
+			sym->sig = math_usub(a->sig, b->sig);
 			sym->sign = 0;
 		} else {
-			sym_sub_buf(b->buf, a->buf, sym->buf);
+			sym->sig = math_usub(a->sig, b->sig);
 		}
 
 		return sym;
@@ -59,9 +87,9 @@ sym_add(const sym a, const sym b)
 
 	if (a->sign && !b->sign) {
 		if (sym_cmp(a, b) > 0) {
-			sym_sub_buf(a->buf, b->buf, sym->buf);
+			sym->sig = math_usub(a->sig, b->sig);
 		} else {
-			sym_sub_buf(b->buf, a->buf, sym->buf);
+			sym->sig = math_usub(a->sig, b->sig);
 			sym->sign = 0;
 		}
 
@@ -72,19 +100,19 @@ sym_add(const sym a, const sym b)
 }
 
 static sym
-fractionize(const sym s)
+fractionize(sym s)
 {
 	sym sym = sym_new(SYM_RATIO);
 
-	sym->b = sym_new(SYM_INT);
-	sym->b->buf[0] = 1;
+	sym->b = sym_new(SYM_NUM);
+	sym->b->sig->x = 1;
 	sym->a = s;
 
 	return sym;
 }
 
 sym
-sym_sub(const sym a, const sym b)
+sym_sub(sym a, sym b)
 {
 	if (a->type == SYM_RATIO || b->type == SYM_RATIO) {
 		sym A = sym_copy(a), B = sym_copy(b);
@@ -103,38 +131,54 @@ sym_sub(const sym a, const sym b)
 		return tmp;
 	}
 
-	if (a->type != SYM_INT || b->type != SYM_INT)
-		return NULL;
+	sym sym = sym_new(SYM_NUM);
 
-	sym sym = sym_new(SYM_INT);
+	if (a->type != SYM_NUM || b->type != SYM_NUM) {
+		sym->type = SYM_DIFFERENCE;
+		sym->a = sym_copy(a);
+		sym->b = sym_copy(b);
+		return sym;
+	}
+
+	while (math_ucmp(a->exp, b->exp) < 0) {
+		math_uinc(&a->exp);
+		math_ushift(&a->sig);
+	}
+
+	while (math_ucmp(b->exp, a->exp) < 0) {
+		math_uinc(&b->exp);
+		math_ushift(&b->sig);
+	}
+
+	sym->exp = math_ucopy(a->exp);
 
 	if (!a->sign && b->sign) {
-		sym_add_buf(a->buf, b->buf, sym->buf);
+		sym->sig = math_uadd(a->sig, b->sig);
 		sym->sign = 0;
 		return sym;
 	}
 
 	if (a->sign && !b->sign) {
-		sym_add_buf(a->buf, b->buf, sym->buf);
-		sym->sign = 0;
+		sym->sig = math_uadd(a->sig, b->sig);
+		sym->sign = 1;
 		return sym;
 	}
 
 	if (a->sign && b->sign) {
 		if (sym_cmp(a, b) > 0) {
-			sym_sub_buf(a->buf, b->buf, sym->buf);
+			sym->sig = math_usub(a->sig, b->sig);
 		} else {
-			sym_sub_buf(b->buf, a->buf, sym->buf);
+			sym->sig = math_usub(b->sig, a->sig);
 			sym->sign = 0;
 		}
 	}
 
 	if (!a->sign && !b->sign) {
 		if (sym_cmp(a, b) > 0) {
-			sym_sub_buf(a->buf, b->buf, sym->buf);
+			sym->sig = math_usub(a->sig, b->sig);
 			sym->sign = 0;
 		} else {
-			sym_sub_buf(b->buf, a->buf, sym->buf);
+			sym->sig = math_usub(a->sig, b->sig);
 		}
 	}
 
@@ -142,30 +186,25 @@ sym_sub(const sym a, const sym b)
 }
 
 static bool
-sym_is_zero(const sym s)
+sym_is_zero(sym s)
 {
-	if (s->type != SYM_INT) return false;
-
-	for (int i = 0; i < DIGITS; i++)
-		if (s->buf[i])
-			return false;
-
-	return true;
+	if (s->type != SYM_NUM) return false;
+	return math_uzero(s->sig);
 }
 
 sym
-sym_copy(const sym s)
+sym_copy(sym s)
 {
 	sym sym = sym_new(s->type);
-	memcpy(sym->buf, s->buf, sizeof s->buf);
+	sym->sig = math_ucopy(s->sig);
 	return sym;
 }
 
 sym
-sym_dec(const sym s)
+sym_dec(sym s)
 {
-	sym b = sym_new(SYM_INT);
-	b->buf[0] = 1;
+	sym b = sym_new(SYM_NUM);
+	b->sig->x = 1;
 	return sym_sub(s, b);
 }
 
@@ -184,30 +223,110 @@ sym_mul(sym a, sym b)
 		return sym;
 	}
 
-	if (a->type != SYM_INT || b->type != SYM_INT)
-		return NULL;
+	sym sym = sym_new(SYM_NUM);
 
-	sym sym = sym_new(SYM_INT);
-	sym_mul_buf(a->buf, b->buf, sym->buf);
+	if (a->type != SYM_NUM || b->type != SYM_NUM) {
+		sym->type = SYM_PRODUCT;
+		sym->a = sym_copy(a);
+		sym->b = sym_copy(b);
+		return sym;
+	}
+
+	sym->exp = math_uadd(a->exp, b->exp);
+
+	sym->sig = math_umul(a->sig, b->sig);
 	if (a->sign != b->sign) sym->sign = 0;
 
 	return sym;
 }
 
 sym
-sym_div(const sym a, const sym b)
+sym_div_(sym a, sym b)
 {
-	num buf;
-	sym_div_buf(a->buf, b->buf, buf, (num){0});
+	sym q = sym_new(SYM_NUM);
+	num r = NULL;
+	int i = 0;
+	q->exp = math_usub(a->exp, b->exp);
+	math_udiv(a->sig, b->sig, &q->sig, &r);
 
-	sym sym = sym_new(SYM_INT);
-	memcpy(sym->buf, buf, sizeof buf);
+	do {
+		r = math_umul(r, &(struct num){0,&(struct num){1,0},0});
+		num tmp = NULL, d = NULL;
+		math_udiv(r, b->sig, &d, &tmp);
+		r = tmp;
+		i++;
+		math_uprepend(&q->sig, d ? d->x : 0);
+		math_uinc(&q->exp);
+	} while (!math_uzero(r) && i < 10);
+	
+	if (a->sign != b->sign) q->sign = 0;
 
-	return sym;
+	return q;
+}
+
+#define DIGIT(X) &(struct sym){SYM_NUM,1,.sig=&(struct num){X},0}
+
+sym sqrt_(const sym s)
+{
+	sym a = DIGIT(0), b = sym_copy(s), c = b;
+
+	for (int i = 0; i < 4; i++) {
+//		puts("{");
+//		sym_print(a), puts("");
+//		sym_print(b), puts("");
+//		puts("}");
+		c = sym_div_(sym_add(a, b), DIGIT(2));
+		sym c2 = sym_mul(c, c);
+		sym a2 = sym_mul(a, a);
+		if (sym_cmp(c2, s) == sym_cmp(a2, s))
+			a = c;
+		else
+			b = c;
+	}
+
+	return c;
+}
+
+sym sym_sqrt(const sym s)
+{
+	sym d = sym_copy(s), x = sqrt_(d);
+	printf("guess: "), sym_print(x), puts("");
+	for (int i = 0; i < 4; i++) {
+		x = sym_sub(x, sym_div_(sym_sub(sym_mul(x, x), d), sym_mul(DIGIT(2), x)));
+	}
+	return x;
+}
+
+sym
+sym_div(sym a, sym b)
+{
+	return sym_div_(a, b);
+	sym d0 = sym_copy(b);
+	sym k = sym_new(SYM_NUM);
+	k = sym_add(k, DIGIT(1));
+	
+	while (sym_cmp(d0, DIGIT(1)) >= 0) {
+		sym_print(d0), puts("");
+		k = sym_mul(k, DIGIT(2));
+		d0 = sym_div_(d0, DIGIT(2));
+	}
+	
+	printf("d0: "), sym_print(d0), puts("");
+
+	sym x0 = sym_sub(sym_div_(DIGIT(48), DIGIT(17)), sym_mul(sym_div_(DIGIT(32), DIGIT(17)), d0));
+
+	for (int i = 0; i < 4; i++) {
+		x0 = sym_mul(x0, sym_sub(DIGIT(2), sym_mul(d0, x0)));
+	}
+
+	x0 = sym_div_(x0, k);
+	x0 = sym_mul(x0, a);
+
+	return x0;
 }
 
 #define PRINT_PARENTHESIZED(X)	  \
-	if ((X)->type != SYM_INT && (X)->type != SYM_RATIO) { \
+	if ((X)->type != SYM_NUM && (X)->type != SYM_RATIO) { \
 		printf("\\left("); \
 		sym_print(X); \
 		printf("\\right)"); \
@@ -216,7 +335,7 @@ sym_div(const sym a, const sym b)
 	}
 
 void
-sym_print(const sym s)
+sym_print(sym s)
 {
 	if (!s) {
 		puts("");
@@ -239,10 +358,6 @@ sym_print(const sym s)
 		printf("-");
 		PRINT_PARENTHESIZED(s->b);
 		break;
-	case SYM_INT:
-		if (!sym_is_zero(s) && !s->sign) putchar('-');
-		sym_print_buf(s->buf);
-		break;
 	case SYM_RATIO:
 		printf("\\frac{"), sym_print(s->a);
 		printf("}{"), sym_print(s->b);
@@ -251,13 +366,86 @@ sym_print(const sym s)
 	case SYM_VARIABLE:
 		printf("%s", s->variable);
 		break;
+	case SYM_NUM: {
+//		puts("oifseojisef");
+//		math_print(s->sig), puts("");
+//		puts("oifseojisef");
+		num tmp = math_ucopy(s->exp);
+		num whole = s->sig;
+
+		while (!math_uzero(tmp)) {
+			if (whole) whole = whole->next;
+			math_udec(&tmp);
+		}
+
+		if (whole && !s->sign) putchar('-');
+		math_print(whole);
+
+		num div = NULL;
+		for (num i = math_ucopy(s->exp);
+		     !math_uzero(i);
+		     math_udec(&i))
+			math_upush(&div, 0);
+		math_upush(&div, 1);
+
+		num fraction = NULL;
+		if (whole) whole = whole->prev;
+
+		if (!whole) {
+			whole = s->sig;
+			while (whole && whole->next) whole = whole->next;
+		}
+
+		while (whole) {
+			math_uprepend(&fraction, whole->x);
+			whole = whole->prev;
+		}
+
+		num r = NULL;
+		math_udiv2(&fraction, div, &r);
+		
+		if (r) putchar('.');
+
+		while (!math_uzero(r)) {
+			num tmp = NULL, tmp2 = NULL;
+			r = math_umul(r, &(struct num){10,0,0});
+			math_udiv(r, div, &tmp, &tmp2);
+			math_print(tmp);
+			r = tmp2;
+		}
+#if 0
+		num fraction = NULL;
+		memcpy(fraction, s->sig, s->exp[0]);
+		num div = NULL;
+		div[s->exp[0]] = 1;
+
+		num whole = NULL;
+		memcpy(whole, s->sig + s->exp[0], BUF_SIZE - s->exp[0]);
+
+		num r = NULL;
+		sym_div_buf(fraction, div, &(num){0}, &r);
+
+		sym_print_buf(whole);
+
+		if (!math_uzero(r)) putchar('.');
+
+		while (!math_uzero(r)) {
+			num tmp = NULL, tmp2 = NULL;
+			sym_mul_buf(r, (num){10,0}, tmp);
+			memcpy(r, tmp, BUF_SIZE);
+			sym_div_buf(r, div, tmp, tmp2);
+			sym_print_buf(tmp);
+			memcpy(r, tmp2, BUF_SIZE);
+		}
+#endif
+	} break;
 	}
 }
 
 sym
-sym_gcf(const sym a, const sym b)
+sym_gcf(sym a, sym b)
 {
-	if (a->type != SYM_INT || b->type != SYM_INT)
+	if (a->type != SYM_NUM || b->type != SYM_NUM)
 		return NULL;
 
 	sym A = sym_copy(a), B = sym_copy(b);
@@ -267,38 +455,24 @@ sym_gcf(const sym a, const sym b)
 		A = B, B = tmp;
 	}
 
-	sym r = sym_new(SYM_INT);
+	sym r = sym_new(SYM_NUM);
 
 	while (1) {
-		num tmp;
-		sym_div_buf(A->buf, B->buf, tmp, r->buf);
-		memcpy(A->buf, tmp, BUF_SIZE);
+		num tmp = NULL;
+		math_udiv(A->sig, B->sig, &tmp, &r->sig);
+		A->sig = tmp;
 		if (sym_is_zero(r)) return B;
-		memcpy(A->buf, B->buf, BUF_SIZE);
-		memcpy(B->buf, r->buf, BUF_SIZE);
+		A->sig = B->sig;
+		B->sig = r->sig;
 	}
 
 	return B;
 }
 
-static bool
-intcmp(const sym s, int k)
-{
-	if (!s) return false;
-
-	for (int i = DIGITS - 1; i >= 0; i--)
-		if (s->buf[i])
-			return false;
-
-	if (s->buf[0] == k)
-		return true;
-
-	return false;
-}
-
 sym
-sym_simplify(const sym s)
+sym_simplify(sym s)
 {
+#if 0
 	sym sym = NULL;
 
 	switch (s->type) {
@@ -316,7 +490,7 @@ sym_simplify(const sym s)
 			return sym_simplify(sym);
 		}
 
-		if (s->a->type != SYM_INT || s->b->type != SYM_INT) {
+		if (s->a->type != SYM_NUM || s->b->type != SYM_NUM) {
 			sym = sym_copy(s);
 			break;
 		}
@@ -334,12 +508,14 @@ sym_simplify(const sym s)
 	} break;
 	default: sym = s;
 	}
+#endif
 
-	return sym;
+	//return sym;
+	return s;
 }
 
 sym
-sym_eval(const sym s)
+sym_eval(sym s)
 {
 	sym sym = NULL;
 
@@ -347,7 +523,7 @@ sym_eval(const sym s)
 
 	switch (s->type) {
 	case SYM_SUM:
-		sym = sym_add(sym_eval(s->a), sym_eval(s->b));
+		//sym = sym_add(sym_eval(s->a), sym_eval(s->b));
 		break;
 	case SYM_DIFFERENCE:
 		sym = sym_sub(sym_eval(s->a), sym_eval(s->b));
@@ -361,7 +537,7 @@ sym_eval(const sym s)
 		sym->a = sym_eval(s->a);
 		sym->b = sym_eval(s->b);
 		break;
-	case SYM_INT:
+	case SYM_NUM:
 		sym = s;
 		break;
 	default:

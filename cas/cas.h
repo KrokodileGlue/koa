@@ -3,21 +3,16 @@
 #include <inttypes.h>
 #include <stdbool.h>
 
-#define DIGITS 256
-#define BASE 256
-typedef uint8_t num[DIGITS];
-
-#define BUF_SIZE (DIGITS * sizeof (uint8_t))
+//typedef uint8_t digit;
 
 struct sym {
 	enum sym_type {
-		SYM_INT,
+		SYM_NUM,
 		SYM_RATIO,
 		SYM_PRODUCT,
 		SYM_SUM,
 		SYM_DIFFERENCE,
 		SYM_VARIABLE,
-		SYM_FLOAT
 	} type;
 
 	bool sign;
@@ -27,11 +22,10 @@ struct sym {
 			struct sym *a, *b;
 		};
 
-		num buf;
 		char *variable;
 
 		struct {
-			num significand, exp;
+			struct num *sig, *exp;
 		};
 	};
 };
@@ -39,6 +33,7 @@ struct sym {
 typedef struct sym *sym;
 
 sym sym_new(enum sym_type type);
+void sym_float(sym a, double c);
 sym sym_add(const sym a, const sym b);
 sym sym_sub(const sym a, const sym b);
 sym sym_copy(const sym s);
@@ -50,4 +45,5 @@ int sym_cmp(const sym a, const sym b);
 void sym_print(const sym s);
 sym sym_gcf(const sym a, const sym b);
 sym sym_simplify(const sym s);
-sym sym_parse_latex(const char *s);
+sym sym_sqrt(const sym s);
+//sym sym_parse_latex(const char *s);

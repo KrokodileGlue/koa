@@ -1,3 +1,11 @@
+#include <ctype.h>
+#include <time.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include <string.h>
+#include <stdio.h>
+#include <inttypes.h>
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdint.h>
@@ -6,142 +14,405 @@
 
 #include "arithmetic.h"
 
-int
-sym_cmp_buf(const num a, const num b)
+void math_upush(num *dig, int32_t k)
 {
-	for (int i = DIGITS - 1; i >= 0; i--) {
-		if (a[i] > b[i]) return 1;
-		if (b[i] > a[i]) return -1;
+	if (!*dig) {
+		num tmp = malloc(sizeof *tmp);
+		tmp->next = NULL;
+		tmp->prev = NULL;
+		tmp->x = k;
+		*dig = tmp;
+		return;
 	}
 
-	return 0;
+	num tmp = *dig;
+	while (tmp->next) tmp = tmp->next;
+
+	tmp->next = malloc(sizeof *tmp);
+	tmp->next->next = NULL;
+	tmp->next->prev = tmp;
+	tmp->next->x = k;
 }
 
-void
-sym_add_buf(const num a, const num b, num buf)
+void math_uprepend(num *dig, int32_t k)
 {
-	uint64_t d = 0;
+	if (!*dig) {
+		math_upush(dig, k);
+		return;
+	}
 
-	for (int i = 0; i < DIGITS; i++) {
-		uint64_t sum = (uint64_t)a[i] + (uint64_t)b[i] + d;
-		buf[i] = sum % BASE;
+	num tmp = malloc(sizeof *tmp);
+	tmp->next = *dig;
+	tmp->prev = NULL;
+	tmp->x = k;
+	(*dig)->prev = tmp;
+	*dig = tmp;
+}
+
+int math_ulen(num n)
+{
+	int len = 0;
+
+	if (!n) return 0;
+	while (n->next) n = n->next;
+
+	while (n && n->x == 0) {
+		n = n->prev;
+	}
+
+	while (n) {
+		n = n->prev;
+		len++;
+	}
+
+	return len;
+}
+
+num math_uadd(num a, num b)
+{
+	uint32_t d = 0;
+	num buf = NULL;
+
+	while (a && b) {
+		uint64_t sum = (uint64_t)a->x + (uint64_t)b->x + d;
+		math_upush(&buf, sum % BASE);
 		d = sum / BASE;
+		a = a->next, b = b->next;
 	}
+
+	while (a) {
+		uint64_t sum = (uint64_t)a->x + d;
+		math_upush(&buf, sum % BASE);
+		d = sum / BASE;
+		a = a->next;
+	}
+
+	while (b) {
+		uint64_t sum = (uint64_t)b->x + d;
+		math_upush(&buf, sum % BASE);
+		d = sum / BASE;
+		b = b->next;
+	}
+
+	while (d) {
+		math_upush(&buf, d % BASE);
+		d /= BASE;
+	}
+
+	return buf;
 }
 
-void
-sym_sub_buf(const num a, const num b, num buf)
+num math_usub(num a, num b)
+{
+	num buf = NULL;
+	int64_t d = 0;
+
+	while (a && b) {
+		int64_t sum = (int64_t)a->x - (int64_t)b->x + d;
+
+		if (sum < 0) {
+			math_upush(&buf, (BASE + sum) % BASE);
+			d = -1;
+		} else {
+			math_upush(&buf, sum % BASE);
+			d = 0;
+		}
+
+		a = a->next, b = b->next;
+	}
+
+	while (a) {
+		int64_t sum = (int64_t)a->x + d;
+
+		if (sum < 0) {
+			math_upush(&buf, (BASE + sum) % BASE);
+			d = -1;
+		} else {
+			math_upush(&buf, sum % BASE);
+			d = 0;
+		}
+
+		a = a->next;
+	}
+
+	while (b) {
+		int64_t sum = (int64_t)b->x + d;
+
+		if (sum < 0) {
+			math_upush(&buf, (BASE + sum) % BASE);
+			d = -1;
+		} else {
+			math_upush(&buf, sum % BASE);
+			d = 0;
+		}
+
+		b = b->next;
+	}
+
+	return buf;
+}
+
+void math_usub2(num a, num b)
 {
 	int64_t d = 0;
 
-	for (int i = 0; i < DIGITS; i++) {
-		int64_t sum = (int64_t)a[i] - (int64_t)b[i] + d;
+	while (a && b) {
+		int64_t sum = (int64_t)a->x - (int64_t)b->x + d;
 
 		if (sum < 0) {
-			buf[i] = (BASE + sum) % BASE;
+			a->x = (BASE + sum) % BASE;
 			d = -1;
 		} else {
-			buf[i] = sum % BASE;
+			a->x = sum % BASE;
 			d = 0;
 		}
+
+		a = a->next, b = b->next;
 	}
-}
 
-bool
-is_buf_zero(const num s)
-{
-	for (int i = 0; i < DIGITS; i++)
-		if (s[i])
-			return false;
-	return true;
-}
+	while (a) {
+		int64_t sum = (int64_t)a->x + d;
 
-void
-sym_mul_buf(const num a, const num b, num buf)
-{
-	memset(buf, 0, BUF_SIZE);
-
-	for (int i = 0; i < DIGITS - 1; i++) {
-		uint64_t carry = 0;
-
-		for (int j = 0; j < DIGITS - 1; j++) {
-			if (i + j >= DIGITS) break;
-			uint64_t product = buf[i + j] + carry + a[i] * b[j];
-			carry = product / BASE;
-			buf[i + j] = product % BASE;
+		if (sum < 0) {
+			a->x = (BASE + sum) % BASE;
+			d = -1;
+		} else {
+			a->x = sum % BASE;
+			d = 0;
 		}
+
+		a = a->next;
+	}
+
+	while (b) {
+		int64_t sum = (int64_t)b->x + d;
+
+		if (sum < 0) {
+			a->x = (BASE + sum) % BASE;
+			d = -1;
+		} else {
+			a->x = sum % BASE;
+			d = 0;
+		}
+
+		b = b->next;
 	}
 }
 
-int
-sym_len_buf(const num buf)
+void math_ushift(num *n)
 {
-	for (int i = DIGITS - 1; i >= 0; i--)
-		if (buf[i])
-			return i + 1;
+	math_uprepend(n, 0);
+}
+
+int math_ucmp(num a, num b)
+{
+	if (!a && !b) return 0;
+	if (!a) return -1;
+	if (!b) return 1;
+	if (math_ulen(a) > math_ulen(b)) return 1;
+	if (math_ulen(a) < math_ulen(b)) return -1;
+	while (a->next) a = a->next;
+	while (b->next) b = b->next;
+	while (a->x == 0) a = a->prev;
+	while (b->x == 0) b = b->prev;
+	while (a && b) {
+		if (a->x > b->x) return 1;
+		if (a->x < b->x) return -1;
+		a = a->prev, b = b->prev;
+	}
 	return 0;
 }
 
-void
-sym_lshift_buf(num n)
+void math_unorm(num *n)
 {
-	for (int i = DIGITS - 1; i; i--)
-		n[i] = n[i - 1];
-	n[0] = 0;
-}
+	num tmp = *n;
 
-void
-sym_inc_buf(num n)
-{
-	sym_add_buf(n, (num){1, 0}, n);
-}
+	if (!tmp) return;
+	while (tmp->next) tmp = tmp->next;
 
-void
-sym_div_buf(const num a, const num b, num q, num r)
-{
-	memset(q, 0, BUF_SIZE), memset(r, 0, BUF_SIZE);
+	while (tmp->x == 0) {
+		tmp = tmp->prev;
 
-	for (int i = DIGITS - 1; i >= 0; i--) {
-		sym_lshift_buf(r);
-		r[0] = a[i];
-
-		while (sym_cmp_buf(r, b) >= 0) {
-			sym_sub_buf(r, b, r);
-			q[i]++;
+		if (!tmp) {
+			*n = NULL;
+			return;
 		}
+
+		tmp->next = NULL;
 	}
 }
 
-void
-sym_print_buf(const num n)
+void math_uinc(num *n)
 {
-	num N, ten = {10, 0};
+	uint64_t d = 1;
 
-	memcpy(N, n, sizeof N);
-	char str[10000];
+	if (!*n) {
+		math_upush(n, 1);
+		return;
+	}
+
+	num tmp = *n;
+
+	while (d) {
+		uint64_t sum = tmp->x + d;
+
+		if (sum >= BASE) {
+			sum -= BASE;
+			d = sum + 1;
+		} else {
+			d = 0;
+		}
+
+		tmp->x = sum;
+		if (!tmp->next && d) math_upush(&tmp, 0);
+		tmp = tmp->next;
+	}
+}
+
+void math_udec(num *n)
+{
+	uint64_t d = 1;
+	if (!*n) return;
+	num tmp = *n;
+
+	while (d) {
+		int64_t sum = tmp->x - d;
+
+		if (sum < 0) {
+			sum += BASE;
+			d = BASE - sum;
+		} else {
+			d = 0;
+		}
+
+		tmp->x = sum;
+		tmp = tmp->next;
+	}
+}
+
+void math_udiv(num a, num b, num *q, num *r)
+{
+	*q = NULL, *r = NULL;
+
+	if (!a) return;
+	while (a->next) a = a->next;
+
+	while (a) {
+		math_uprepend(r, a->x);
+		math_ushift(q);
+
+		while (math_ucmp(*r, b) >= 0) {
+			math_usub2(*r, b);
+			math_uinc(q);
+		}
+
+		a = a->prev;
+	}
+
+	math_unorm(q), math_unorm(r);
+}
+
+void math_udiv2(num *a, num b, num *r)
+{
+	*r = NULL;
+
+	num q = *a;
+
+	if (!q) return;
+	while (q->next) q = q->next;
+
+	while (q) {
+		math_uprepend(r, q->x);
+		q->x = 0;
+
+		while (math_ucmp(*r, b) >= 0) {
+			math_usub2(*r, b);
+			q->x++;
+		}
+
+		q = q->prev;
+	}
+
+	math_unorm(a), math_unorm(r);
+}
+
+num math_ucopy(num n)
+{
+	num tmp = NULL;
+
+	while (n) {
+		math_upush(&tmp, n->x);
+		n = n->next;
+	}
+
+	return tmp;
+}
+
+void math_print(num n)
+{
+	if (!n) {
+		putchar('0');
+		return;
+	}
+
+#if 0
+	int i = 1;
+	while (n->next) n = n->next;
+	while (n && n->x == 0) n = n->prev;
+	while (n) {
+		putchar(n->x + '0');
+		if (n->prev && (math_ulen(n) - i++) % 3 == 0)
+			putchar(',');
+		n = n->prev;
+	}
+#else
+	num tmp = math_ucopy(n);
+
+	char buf[2000];
 	int i = 0;
 
-	str[0] = 0;
-
-	while (!is_buf_zero(N)) {
-		/* printf("[%d]", i), fflush(stdout); */
-		num q, r;
-		sym_div_buf(N, ten, q, r);
-
-		str[i++] = r[0] + '0';
-		str[i] = 0;
-
-		memcpy(N, q, sizeof q);
+	while (math_ucmp(tmp, NULL)) {
+		num r = NULL;
+		math_udiv2(&tmp, &(struct num){10,0,0}, &r);
+		buf[i++] = (r ? r->x : 0) + '0';
+		buf[i] = 0;
 	}
 
-	if (!str[0]) str[0] = '0', str[1] = 0;
+	for (int i = 0; i < (int)strlen(buf); i++)
+		putchar(buf[strlen(buf) - i - 1]);
+#endif
+}
 
-	size_t len = strlen(str);
-	for (size_t i = 0; i < len / 2; i++) {
-		char tmp = str[i];
-		str[i] = str[len - i - 1];
-		str[len - i - 1] = tmp;
+num math_umul(num a, num b)
+{
+	num p = NULL, p1;
+	math_upush(&p, 0), p1 = p;
+
+	while (a) {
+		uint64_t carry = 0;
+		num btmp = b, p2 = p1;
+
+		do {
+			uint64_t product = p2->x + carry
+				+ a->x * (b ? b->x : 0);
+			carry = product / BASE;
+			p2->x = product % BASE;
+			if (b) b = b->next;
+			if (!p2->next) math_upush(&p, 0);
+			p2 = p2->next;
+		} while (carry || b);
+
+		b = btmp, a = a->next, p1 = p1->next;
 	}
 
-	printf("%s", str);
+	math_unorm(&p);
+	return p;
+}
+
+int math_uzero(num n)
+{
+	for (; n; n = n->next)
+		if (n->x)
+			return 0;
+	return 1;
 }

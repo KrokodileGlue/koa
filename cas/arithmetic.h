@@ -1,16 +1,33 @@
 #pragma once
 
-#include "cas.h"
+#define BASE 10
+typedef uint32_t digit;
 
-#define WORD(X) ((num){X,0})
+struct num {
+	digit x;
+	struct num *next, *prev;
+};
 
-int sym_cmp_buf(const num a, const num b);
-void sym_add_buf(const num a, const num b, num buf);
-void sym_sub_buf(const num a, const num b, num buf);
-bool is_buf_zero(const num s);
-void sym_mul_buf(const num a, const num b, num buf);
-int sym_len_buf(const num buf);
-void sym_mod_buf(const num a, const num b, num c);
-void sym_inc_buf(num n);
-void sym_div_buf(const num a, const num b, num q, num r);
-void sym_print_buf(const num n);
+typedef struct num *num;
+
+num math_uadd(num a, num b);
+
+num math_usub(num a, num b);
+void math_usub2(num a, num b);
+
+num math_umul(num a, num b);
+
+void math_udiv(num a, num b, num *q, num *r);
+void math_udiv2(num *a, num b, num *r);
+
+int math_ucmp(num a, num b);
+void math_ushift(num *n);
+void math_unorm(num *n);
+void math_uinc(num *n);
+void math_udec(num *n);
+
+void math_print(num n);
+int math_uzero(num n);
+num math_ucopy(num n);
+void math_upush(num *dig, int32_t k);
+void math_uprepend(num *dig, int32_t k);

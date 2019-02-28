@@ -1,47 +1,107 @@
+#include <ctype.h>
+#include <time.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include <string.h>
 #include <stdio.h>
+#include <inttypes.h>
+
+#include <stdio.h>
+#include <string.h>
 
 #include "cas.h"
 #include "arithmetic.h"
 
-void test(void)
-{
-	struct sym *sym = sym_parse_latex("\\frac{\\left(42-\\frac{50}{20}\
-\\right)\\cdot5}{\\frac{\\frac{\\frac{2}{5}}{7}}{2}}");
-	sym_print(sym);
-	struct sym *ret = sym_eval(sym);
-	sym_print(ret);
-}
+#define LINE_BUFFER_LENGTH 10000
+char l[LINE_BUFFER_LENGTH];
 
 int main(void)
 {
-	test();
-	return 0;
+	while (1) {
+		printf("> ");
+		if (!fgets(l, LINE_BUFFER_LENGTH, stdin)) exit(1);
 
-	sym a = sym_new(SYM_INT);
-	a->buf[0] = 50;
-	sym b = sym_new(SYM_INT);
-	b->buf[0] = 20;
+		num x = NULL, y = NULL;
+		num xexp = NULL, yexp = NULL;
 
-	sym sum = sym_add(a, b);
-	sym dif = sym_sub(a, b);
-	sym pro = sym_mul(a, b);
-	sym quo = sym_div(a, b);
-	/* sym mod = sym_mod(a, b); */
+		int dec = 0;
 
-	puts("Finished computations.");
+		_Bool signx = true, signy = true;
 
-	sym_print(a), puts("");
-	sym_print(b), puts("");
+		if (strchr("+-/*s", *l)) {
+			char *s = l;
+			s++;
 
-	printf("a is %s than b.\n", sym_cmp(a, b) < 0
-	       ? "smaller than" : sym_cmp(a, b) == 0
-	       ? "equal to" : "greater than");
+			while (*s && isspace(*s)) s++;
+			if (*s == '-') signx = false, s++;
+			while (*s && isspace(*s)) s++;
+			while (*s && (isdigit(*s) || *s == '.')) {
+				if (*s == '.') {
+					dec = 1, s++;
+					continue;
+				}
 
-	printf("sum: "), sym_print(sum), puts("");
-	printf("dif: "), sym_print(dif), puts("");
-	printf("pro: "), sym_print(pro), puts("");
-	printf("quo: "), sym_print(quo), puts("");
-	/* printf("mod: "), sym_print(mod); */
+				if (dec) math_uinc(&xexp);
+
+				x = math_umul(x, &(struct num){10,0,0});
+				x = math_uadd(x, &(struct num){*s - '0',0,0});
+
+				s++;
+			}
+
+			dec = 0;
+
+			while (*s && isspace(*s)) s++;
+			if (*s == '-') signy = false, s++;
+			while (*s && isspace(*s)) s++;
+			while (*s && (isdigit(*s) || *s == '.')) {
+				if (*s == '.') {
+					dec = 1, s++;
+					continue;
+				}
+
+				if (dec) math_uinc(&yexp);
+
+				y = math_umul(y, &(struct num){10,0,0});
+				y = math_uadd(y, &(struct num){*s - '0',0,0});
+				s++;
+			}
+		}
+
+		math_unorm(&x), math_unorm(&xexp);
+		math_unorm(&y), math_unorm(&yexp);
+
+		sym a = sym_new(SYM_NUM),
+			b = sym_new(SYM_NUM);
+		a->sig = x, a->exp = xexp, a->sign = signx;
+		b->sig = y, b->exp = yexp, b->sign = signy;
+
+		num r;
+		sym q;
+
+//		math_print(x), printf(", "), math_print(xexp), puts("");
+//		math_print(y), printf(", "), math_print(yexp), puts("");
+
+//		sym_print(a), puts("");
+//		sym_print(b), puts("");
+
+		switch (*l) {
+		case 's':
+			sym_print(sym_sqrt(a)), puts("");
+			break;
+		case '+':
+			sym_print(sym_add(a, b)), puts("");
+			break;
+		case '-': sym_print(sym_sub(a, b)), puts(""); break;
+		case '/': q = sym_div(a, b), sym_print(q), puts(""); break;
+		case '*':
+			sym_print(sym_mul(a, b)), puts("");
+			break;
+		case 'x': return 0;
+		case '\n': continue;
+		default: puts("No such command.");
+		}
+	}
 
 	return 0;
 }

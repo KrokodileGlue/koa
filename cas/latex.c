@@ -4,7 +4,7 @@
 #include "cas.h"
 
 struct op {
-	const char *body, *body2;
+	char *body, *body2;
 
 	int prec;
 
@@ -38,7 +38,7 @@ for (size_t I = 0; \
      I < sizeof (X) / sizeof (X)[0]; \
      i++)
 
-struct op *get_infix_op(const char *c)
+struct op *get_infix_op(char *c)
 {
 	FOR(i, operators) {
 		size_t len = strlen(operators[i].body);
@@ -50,7 +50,7 @@ struct op *get_infix_op(const char *c)
 	return NULL;
 }
 
-struct op *get_prefix_op(const char *c)
+struct op *get_prefix_op(char *c)
 {
 	FOR(i, operators) {
 		size_t len = strlen(operators[i].body);
@@ -62,7 +62,7 @@ struct op *get_prefix_op(const char *c)
 	return NULL;
 }
 
-int get_prec(const char *c, int prec)
+int get_prec(char *c, int prec)
 {
 	struct op *op = get_infix_op(c);
 	if (op) return op->prec;
@@ -70,7 +70,7 @@ int get_prec(const char *c, int prec)
 }
 
 sym
-sym_parse_latex(const char *s)
+sym_parse_latex(char *s)
 {
 	return NULL;
 }
