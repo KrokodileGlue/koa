@@ -302,7 +302,8 @@ void math_udiv(num a, num b, num *q, num *r)
 		math_ushift(q);
 
 		while (math_ucmp(*r, b) >= 0) {
-			math_usub2(*r, b);
+//			math_usub2(*r, b);
+			*r = math_usub(*r, b);
 			math_uinc(q);
 		}
 

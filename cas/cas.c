@@ -8,6 +8,8 @@
 #include "cas.h"
 #include "arithmetic.h"
 
+#define DIGIT(X) &(struct sym){SYM_NUM,1,.sig=&(struct num){X},0}
+
 sym
 sym_new(enum sym_type type)
 {
@@ -44,6 +46,22 @@ sym_add(sym a, sym b)
 {
 	sym sym = sym_new(SYM_NUM);
 
+//	printf("adding: "), sym_print(a), printf("\t"), sym_print(b), puts("");
+
+	if (b->type == SYM_RATIO) {
+		sym->type = SYM_RATIO;
+		sym->a = sym_add(b->a, sym_mul(a, b->b));
+		sym->b = sym_copy(b->b);
+		return sym;
+	}
+
+	if (a->type == SYM_RATIO) {
+		sym->type = SYM_RATIO;
+		sym->a = sym_add(a->a, sym_mul(b, a->b));
+		sym->b = sym_copy(a->b);
+		return sym;
+	}
+
 	if (a->type != SYM_NUM || b->type != SYM_NUM) {
 		sym->type = SYM_SUM;
 		sym->a = sym_copy(a);
@@ -79,7 +97,7 @@ sym_add(sym a, sym b)
 			sym->sig = math_usub(a->sig, b->sig);
 			sym->sign = 0;
 		} else {
-			sym->sig = math_usub(a->sig, b->sig);
+			sym->sig = math_usub(b->sig, a->sig);
 		}
 
 		return sym;
@@ -89,7 +107,7 @@ sym_add(sym a, sym b)
 		if (sym_cmp(a, b) > 0) {
 			sym->sig = math_usub(a->sig, b->sig);
 		} else {
-			sym->sig = math_usub(a->sig, b->sig);
+			sym->sig = math_usub(b->sig, a->sig);
 			sym->sign = 0;
 		}
 
@@ -105,7 +123,7 @@ fractionize(sym s)
 	sym sym = sym_new(SYM_RATIO);
 
 	sym->b = sym_new(SYM_NUM);
-	sym->b->sig->x = 1;
+	math_uinc(&sym->b->sig);
 	sym->a = s;
 
 	return sym;
@@ -117,16 +135,14 @@ sym_sub(sym a, sym b)
 	if (a->type == SYM_RATIO || b->type == SYM_RATIO) {
 		sym A = sym_copy(a), B = sym_copy(b);
 
-		if (A->type != SYM_RATIO)
-			A = fractionize(A);
-
-		if (B->type != SYM_RATIO)
-			B = fractionize(B);
+		if (A->type != SYM_RATIO) A = fractionize(A);
+		if (B->type != SYM_RATIO) B = fractionize(B);
 
 		sym tmp = sym_new(SYM_RATIO);
 
 		tmp->b = sym_mul(A->b, B->b);
-		tmp->a = sym_sub(sym_mul(A->a, B->b), sym_mul(B->a, A->b));
+		tmp->a = sym_sub(sym_mul(A->a, B->b),
+				sym_mul(B->a, A->b));
 
 		return tmp;
 	}
@@ -195,8 +211,30 @@ sym_is_zero(sym s)
 sym
 sym_copy(sym s)
 {
+	if (!s) return NULL;
 	sym sym = sym_new(s->type);
-	sym->sig = math_ucopy(s->sig);
+
+//	printf("copying: "), sym_print(s), puts("");
+	
+	switch (s->type) {
+	case SYM_PRODUCT:
+	case SYM_DIFFERENCE:
+	case SYM_SUM:
+	case SYM_RATIO:
+		sym->a = sym_copy(s->a);
+		sym->b = sym_copy(s->b);
+		break;
+	case SYM_NUM:
+		sym->sig = math_ucopy(s->sig);
+		sym->exp = math_ucopy(s->exp);
+		sym->sign = s->sign;
+		break;
+	default:
+		printf("unimplemented copier %d\n", s->type);
+		exit(1);
+	}
+
+
 	return sym;
 }
 
@@ -209,7 +247,7 @@ sym_dec(sym s)
 }
 
 sym
-sym_mul(sym a, sym b)
+sym_mul(const sym a, const sym b)
 {
 	if (a->type == SYM_RATIO) {
 		sym sym = sym_copy(a);
@@ -233,8 +271,8 @@ sym_mul(sym a, sym b)
 	}
 
 	sym->exp = math_uadd(a->exp, b->exp);
-
 	sym->sig = math_umul(a->sig, b->sig);
+
 	if (a->sign != b->sign) sym->sign = 0;
 
 	return sym;
@@ -264,17 +302,11 @@ sym_div_(sym a, sym b)
 	return q;
 }
 
-#define DIGIT(X) &(struct sym){SYM_NUM,1,.sig=&(struct num){X},0}
-
 sym sqrt_(const sym s)
 {
 	sym a = DIGIT(0), b = sym_copy(s), c = b;
 
 	for (int i = 0; i < 4; i++) {
-//		puts("{");
-//		sym_print(a), puts("");
-//		sym_print(b), puts("");
-//		puts("}");
 		c = sym_div_(sym_add(a, b), DIGIT(2));
 		sym c2 = sym_mul(c, c);
 		sym a2 = sym_mul(a, a);
@@ -290,10 +322,9 @@ sym sqrt_(const sym s)
 sym sym_sqrt(const sym s)
 {
 	sym d = sym_copy(s), x = sqrt_(d);
-	printf("guess: "), sym_print(x), puts("");
-	for (int i = 0; i < 4; i++) {
-		x = sym_sub(x, sym_div_(sym_sub(sym_mul(x, x), d), sym_mul(DIGIT(2), x)));
-	}
+	for (int i = 0; i < 10; i++)
+		x = sym_sub(x, sym_div_(sym_sub(sym_mul(x, x), d),
+					sym_mul(DIGIT(2), x)));
 	return x;
 }
 
@@ -367,9 +398,6 @@ sym_print(sym s)
 		printf("%s", s->variable);
 		break;
 	case SYM_NUM: {
-//		puts("oifseojisef");
-//		math_print(s->sig), puts("");
-//		puts("oifseojisef");
 		num tmp = math_ucopy(s->exp);
 		num whole = s->sig;
 
@@ -378,7 +406,7 @@ sym_print(sym s)
 			math_udec(&tmp);
 		}
 
-		if (whole && !s->sign) putchar('-');
+		if (!math_uzero(whole) && !s->sign) putchar('-');
 		math_print(whole);
 
 		num div = NULL;
@@ -412,32 +440,8 @@ sym_print(sym s)
 			math_udiv(r, div, &tmp, &tmp2);
 			math_print(tmp);
 			r = tmp2;
+			fflush(stdout);
 		}
-#if 0
-		num fraction = NULL;
-		memcpy(fraction, s->sig, s->exp[0]);
-		num div = NULL;
-		div[s->exp[0]] = 1;
-
-		num whole = NULL;
-		memcpy(whole, s->sig + s->exp[0], BUF_SIZE - s->exp[0]);
-
-		num r = NULL;
-		sym_div_buf(fraction, div, &(num){0}, &r);
-
-		sym_print_buf(whole);
-
-		if (!math_uzero(r)) putchar('.');
-
-		while (!math_uzero(r)) {
-			num tmp = NULL, tmp2 = NULL;
-			sym_mul_buf(r, (num){10,0}, tmp);
-			memcpy(r, tmp, BUF_SIZE);
-			sym_div_buf(r, div, tmp, tmp2);
-			sym_print_buf(tmp);
-			memcpy(r, tmp2, BUF_SIZE);
-		}
-#endif
 	} break;
 	}
 }
@@ -446,6 +450,10 @@ sym
 sym_gcf(sym a, sym b)
 {
 	if (a->type != SYM_NUM || b->type != SYM_NUM)
+		return NULL;
+
+	if (math_ucmp(a->exp, &(struct num){1,0})
+			|| math_ucmp(b->exp, &(struct num){1,0}))
 		return NULL;
 
 	sym A = sym_copy(a), B = sym_copy(b);
@@ -472,10 +480,14 @@ sym_gcf(sym a, sym b)
 sym
 sym_simplify(sym s)
 {
-#if 0
-	sym sym = NULL;
+//	printf("simplifying: "), sym_print(s), puts("");
+	sym sym = s;
 
 	switch (s->type) {
+	case SYM_NUM: break;
+	case SYM_SUM: return sym_add(s->a, s->b);
+	case SYM_DIFFERENCE: return sym_sub(s->a, s->b);
+	case SYM_PRODUCT: return sym_mul(s->a, s->b);
 	case SYM_RATIO: {
 		if (s->a->type == SYM_RATIO) {
 			sym = sym_copy(s->a);
@@ -491,39 +503,38 @@ sym_simplify(sym s)
 		}
 
 		if (s->a->type != SYM_NUM || s->b->type != SYM_NUM) {
-			sym = sym_copy(s);
+			sym = sym_new(SYM_RATIO);
+			sym->a = sym_simplify(s->a);
+			sym->b = sym_simplify(s->b);
 			break;
 		}
 
 		struct sym *gcf = sym_gcf(s->a, s->b);
 
-		if (intcmp(gcf, 1)) {
-			sym = sym_copy(s->a);
-			break;
-		}
+		if (!gcf) break;
 
 		sym = sym_new(SYM_RATIO);
 		sym->a = sym_div(s->a, gcf);
 		sym->b = sym_div(s->b, gcf);
-	} break;
-	default: sym = s;
-	}
-#endif
 
-	//return sym;
-	return s;
+		if (sym_cmp(sym->b, DIGIT(1)) == 0)
+			return sym->a;
+	} break;
+	default: printf("unimplemented: %d\n", s->type);
+	}
+
+	return sym;
 }
 
 sym
 sym_eval(sym s)
 {
-	sym sym = NULL;
-
 	if (!s) return NULL;
+	sym sym = NULL;
 
 	switch (s->type) {
 	case SYM_SUM:
-		//sym = sym_add(sym_eval(s->a), sym_eval(s->b));
+		sym = sym_add(sym_eval(s->a), sym_eval(s->b));
 		break;
 	case SYM_DIFFERENCE:
 		sym = sym_sub(sym_eval(s->a), sym_eval(s->b));
@@ -538,11 +549,14 @@ sym_eval(sym s)
 		sym->b = sym_eval(s->b);
 		break;
 	case SYM_NUM:
-		sym = s;
+		sym = sym_copy(s);
 		break;
 	default:
 		assert(false);
 	}
+	
+	sym = sym_simplify(sym);
+//	printf("after: "), sym_print(sym), puts("");
 
-	return sym_simplify(sym);
+	return sym;
 }
