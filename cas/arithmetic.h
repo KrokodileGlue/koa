@@ -1,7 +1,7 @@
 #pragma once
 
 #define BASE 10
-typedef uint32_t digit;
+typedef uint8_t digit;
 
 struct num {
 	digit x;

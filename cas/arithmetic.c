@@ -213,8 +213,8 @@ int math_ucmp(num a, num b)
 	if (math_ulen(a) < math_ulen(b)) return -1;
 	while (a->next) a = a->next;
 	while (b->next) b = b->next;
-	while (a->x == 0) a = a->prev;
-	while (b->x == 0) b = b->prev;
+	while (a && a->x == 0) a = a->prev;
+	while (b && b->x == 0) b = b->prev;
 	while (a && b) {
 		if (a->x > b->x) return 1;
 		if (a->x < b->x) return -1;

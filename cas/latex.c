@@ -31,6 +31,7 @@ struct op {
 	{ "{", "}", 6, LEFT,  GROUP  },
 	{ "\\left(", "\\right)", 6, LEFT,  GROUP  },
 	{ "\\cdot", "n", 5, LEFT,  BINARY },
+	{ "^", "n", 5, LEFT,  BINARY },
 	{ "*", "n", 5, LEFT,  BINARY },
 	{ "/", "n", 5, LEFT,  BINARY },
 	{ "+", "n", 4, LEFT,  BINARY },
@@ -110,40 +111,28 @@ sym_parse_latex(const char **s, int prec)
 	while (prec < get_prec(*s, prec)) {
 		struct op *op = get_infix_op(*s);
 		if (!op) break;
+		*s += strlen(op->body);
+		sym b = sym_new(SYM_RATIO);
+		b->a = a;
+		b->b = sym_parse_latex(s, op->ass == LEFT ? op->prec : op->prec - 1);
 
 		if (!strcmp(op->body, "+")) {
-			(*s)++;
-			sym b = sym_new(SYM_SUM);
-			b->a = a;
-			b->b = sym_parse_latex(s, op->ass == LEFT ? op->prec : op->prec - 1);
-			a = b;
+			b->type = SYM_SUM;
 		} else if (!strcmp(op->body, "-")) {
-			(*s)++;
-			sym b = sym_new(SYM_DIFFERENCE);
-			b->a = a;
-			b->b = sym_parse_latex(s, op->ass == LEFT ? op->prec : op->prec - 1);
-			a = b;
+			b->type = SYM_DIFFERENCE;
 		} else if (!strcmp(op->body, "*")) {
-			(*s)++;
-			sym b = sym_new(SYM_PRODUCT);
-			b->a = a;
-			b->b = sym_parse_latex(s, op->ass == LEFT ? op->prec : op->prec - 1);
-			a = b;
+			b->type = SYM_PRODUCT;
+		} else if (!strcmp(op->body, "^")) {
+			b->type = SYM_POWER;
 		} else if (!strcmp(op->body, "\\cdot")) {
-			*s += 5;
-			sym b = sym_new(SYM_PRODUCT);
-			b->a = a;
-			b->b = sym_parse_latex(s, op->ass == LEFT ? op->prec : op->prec - 1);
-			a = b;
+			b->type = SYM_PRODUCT;
 		} else if (!strcmp(op->body, "/")) {
-			(*s)++;
-			sym b = sym_new(SYM_RATIO);
-			b->a = a;
-			b->b = sym_parse_latex(s, op->ass == LEFT ? op->prec : op->prec - 1);
-			a = b;
+			b->type = SYM_RATIO;
 		} else {
 			break;
 		}
+
+		a = b;
 	}
 	
 	return a;

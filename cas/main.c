@@ -23,8 +23,8 @@ int main(void)
 		if (!fgets(l, LINE_BUFFER_LENGTH, stdin)) return 1;
 		sym s = sym_parse_latex(&(const char *){l}, 0);
 //		sym_print(s), puts("");
-		sym e = sym_eval(s);
-		sym_print(e), puts("");
+		sym_print(sym_simplify(s)), puts("");
+		sym_print(sym_eval(s)), puts("");
 	}
 
 	return 0;
