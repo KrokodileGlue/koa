@@ -1,31 +1,44 @@
-#include <ctype.h>
-#include <time.h>
-#include <stdlib.h>
-#include <stdint.h>
-#include <string.h>
-#include <stdio.h>
-#include <inttypes.h>
-
 #include <stdio.h>
 #include <string.h>
 
 #include "cas.h"
-#include "arithmetic.h"
 
 #define LINE_BUFFER_LENGTH 10000
+static char l[LINE_BUFFER_LENGTH];
+
+static int
+line(sym_env env)
+{
+	printf("> ");
+	if (!fgets(l, LINE_BUFFER_LENGTH, stdin)) return 1;
+
+	sym s = NULL;
+
+	switch (*l) {
+	case '\n': break;
+	case 'x': return 0;
+	case 's':
+		s = sym_parse_latex(env, &(const char *){l + 1}, 0);
+		sym_print(env, sym_simplify(env, s, -1, 0)), puts("");
+		sym_free(env, s);
+		break;
+	case 'S':
+		sym_print_history(env);
+		break;
+	case 'p':
+		sscanf(l + 1, "%d", &env->precision);
+		break;
+	default:
+		s = sym_parse_latex(env, &(const char *){l}, 0);
+		sym_print(env, sym_eval(env, s, PRIO_ANSWER)), puts("");
+		sym_free(env, s);
+	}
+
+	return 1;
+}
 
 int main(void)
 {
-	static char l[LINE_BUFFER_LENGTH];
-	
-	while (1) {
-		printf("> ");
-		if (!fgets(l, LINE_BUFFER_LENGTH, stdin)) return 1;
-		sym s = sym_parse_latex(&(const char *){l}, 0);
-//		sym_print(s), puts("");
-		sym_print(sym_simplify(s)), puts("");
-		sym_print(sym_eval(s)), puts("");
-	}
-
-	return 0;
+	sym_env env = sym_env_new(PRIO_ANSWER, 10);
+	while (line(env));
 }

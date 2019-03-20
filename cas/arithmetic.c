@@ -14,6 +14,15 @@
 
 #include "arithmetic.h"
 
+void math_free(num n)
+{
+	while (n) {
+		num tmp = n->next;
+		free(n);
+		n = tmp;
+	}
+}
+
 void math_upush(num *dig, int32_t k)
 {
 	if (!*dig) {

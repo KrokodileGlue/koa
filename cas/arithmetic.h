@@ -31,3 +31,5 @@ int math_uzero(num n);
 num math_ucopy(num n);
 void math_upush(num *dig, int32_t k);
 void math_uprepend(num *dig, int32_t k);
+void math_free(num n);
+

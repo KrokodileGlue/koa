@@ -80,7 +80,7 @@ get_prec(const char *c, int prec)
 }
 
 sym
-sym_parse_latex(const char **s, int prec)
+sym_parse_latex(sym_env env, const char **s, int prec)
 {
 	sym a = NULL;
 
@@ -89,20 +89,20 @@ sym_parse_latex(const char **s, int prec)
 
 	if (op && op->type == GROUP) {
 		*s += strlen(op->body);
-		a = sym_parse_latex(s, 0);
+		a = sym_parse_latex(env, s, 0);
 		/* TODO: Errors. */
 		if (strncmp(*s, op->body2, strlen(op->body2)))
 			puts("parse error"), exit(1);
 		*s += strlen(op->body2);
 	} else if (!strncmp(*s, "\\frac", 5)) {
 		*s += 5;
-		a = sym_new(SYM_RATIO);
-		a->a = sym_parse_latex(s, 6);
-		a->b = sym_parse_latex(s, 6);
+		a = sym_new(env, SYM_RATIO);
+		a->a = sym_parse_latex(env, s, 6);
+		a->b = sym_parse_latex(env, s, 6);
 	} else if (**s == '-' || isdigit(**s)) {
-		a = sym_parse_number(s);
+		a = sym_parse_number(env, s);
 	} else {
-		puts("wtf"), printf("%c\n", **s);
+		puts("Couldn't parse line."), printf("%c\n", **s);
 		exit(1);
 	}
 
@@ -112,9 +112,9 @@ sym_parse_latex(const char **s, int prec)
 		struct op *op = get_infix_op(*s);
 		if (!op) break;
 		*s += strlen(op->body);
-		sym b = sym_new(SYM_RATIO);
+		sym b = sym_new(env, SYM_RATIO);
 		b->a = a;
-		b->b = sym_parse_latex(s, op->ass == LEFT ? op->prec : op->prec - 1);
+		b->b = sym_parse_latex(env, s, op->ass == LEFT ? op->prec : op->prec - 1);
 
 		if (!strcmp(op->body, "+")) {
 			b->type = SYM_SUM;
@@ -139,7 +139,7 @@ sym_parse_latex(const char **s, int prec)
 }
 
 sym
-sym_parse_number(const char **s)
+sym_parse_number(sym_env env, const char **s)
 {
 	num x = NULL, num, exp = NULL;
 	_Bool sign = true, dec = false;
@@ -163,7 +163,7 @@ sym_parse_number(const char **s)
 
 	math_unorm(&x), math_unorm(&exp);
 
-	sym a = sym_new(SYM_NUM);
+	sym a = sym_new(env, SYM_NUM);
 	a->sig = x, a->exp = exp, a->sign = sign;
 
 	return a;
