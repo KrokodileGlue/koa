@@ -120,7 +120,7 @@ num math_usub(num a, num b)
 		int64_t sum = (int64_t)a->x - (int64_t)b->x + d;
 
 		if (sum < 0) {
-			math_upush(&buf, (BASE + sum) % BASE);
+			math_upush(&buf, BASE + sum);
 			d = -1;
 		} else {
 			math_upush(&buf, sum % BASE);
@@ -134,7 +134,7 @@ num math_usub(num a, num b)
 		int64_t sum = (int64_t)a->x + d;
 
 		if (sum < 0) {
-			math_upush(&buf, (BASE + sum) % BASE);
+			math_upush(&buf, BASE + sum);
 			d = -1;
 		} else {
 			math_upush(&buf, sum % BASE);
@@ -148,7 +148,7 @@ num math_usub(num a, num b)
 		int64_t sum = (int64_t)b->x + d;
 
 		if (sum < 0) {
-			math_upush(&buf, (BASE + sum) % BASE);
+			math_upush(&buf, BASE + sum);
 			d = -1;
 		} else {
 			math_upush(&buf, sum % BASE);

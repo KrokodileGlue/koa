@@ -1,6 +1,9 @@
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 
+#include "simplify.h"
+#include "latex.h"
 #include "cas.h"
 
 #define LINE_BUFFER_LENGTH 10000
@@ -19,7 +22,12 @@ line(sym_env env)
 	case 'x': return 0;
 	case 's':
 		s = sym_parse_latex(env, &(const char *){l + 1}, 0);
-		sym_print(env, sym_simplify(env, s, -1, 0)), puts("");
+		sym_print(env, sym_simplify(env, s)), puts("");
+		sym_free(env, s);
+		break;
+	case 'e':
+		s = sym_parse_latex(env, &(const char *){l + 1}, 0);
+		sym_print(env, s), puts("");
 		sym_free(env, s);
 		break;
 	case 'S':
@@ -39,6 +47,6 @@ line(sym_env env)
 
 int main(void)
 {
-	sym_env env = sym_env_new(PRIO_ANSWER, 10);
+	sym_env env = sym_env_new(0, 10);
 	while (line(env));
 }

@@ -6,16 +6,16 @@
 #include <stdbool.h>
 #include <assert.h>
 
-#include "cas.h"
 #include "arithmetic.h"
-
-#define DIGIT(X) &(struct sym){SYM_NUM,1,.sig=&(struct num){X},0}
+#include "simplify.h"
+#include "cas.h"
 
 sym
 sym_new(sym_env e, enum sym_type type)
 {
 	sym sym = malloc(sizeof *sym);
 
+	(void)e;                /* Suppress warning. */
 	memset(sym, 0, sizeof *sym);
 	sym->type = type;
 	sym->sign = 1;
@@ -28,7 +28,10 @@ sym_free(sym_env e, sym s)
 {
 	switch (s->type) {
 	case SYM_POWER:
+	case SYM_SUBSCRIPT:
+	case SYM_EQUALITY:
 	case SYM_PRODUCT:
+	case SYM_CROSS:
 	case SYM_DIFFERENCE:
 	case SYM_RATIO:
 	case SYM_SUM:
@@ -36,6 +39,16 @@ sym_free(sym_env e, sym s)
 		break;
 	case SYM_NUM:
 		math_free(s->sig), math_free(s->exp);
+		break;
+	case SYM_INDETERMINATE:
+	case SYM_VARIABLE:
+		free(s->text);
+		break;
+	case SYM_LIST:
+	case SYM_VECTOR:
+		for (unsigned i = 0; i < s->len; i++)
+			sym_free(e, s->vector[i]);
+		free(s->vector);
 		break;
 	default:
 		printf("Unimplemented free-er: %d\n", s->type);
@@ -56,11 +69,11 @@ sym_env_new(enum priority prio, unsigned precision)
 	return env;
 }
 
-static int sym_hist_add(enum priority prio,
-                        sym_env env,
-                        const sym sym,
-                        const char *fmt,
-                        ...)
+int sym_hist_add(enum priority prio,
+                 sym_env env,
+                 const sym sym,
+                 const char *fmt,
+                 ...)
 {
 	if (prio < env->prio) return -1;
 
@@ -81,6 +94,7 @@ static int sym_hist_add(enum priority prio,
 int
 sym_cmp(sym_env e, sym a, sym b)
 {
+	(void)e;                /* Suppress warning. */
 	if (a->type != SYM_NUM || b->type != SYM_NUM)
 		return false;
 
@@ -102,11 +116,21 @@ sym_add(sym_env e, sym a, sym b)
 {
 	sym sym = sym_new(e, SYM_NUM);
 
-//	printf("adding: "), sym_print(e, a), printf("\t"), sym_print(e, b), puts("");
+	//sym_print(e, a), printf("  +  ");
+	//sym_print(e, b), puts("");
 
 	if (b->type == SYM_RATIO) {
 		sym->type = SYM_RATIO;
-		sym->a = sym_add(e, b->a, sym_mul(e, a, b->b));
+
+		if (b->sign) {
+			sym->a = sym_add(e, b->a, sym_mul(e, a, b->b));
+		} else {
+			//printf("components: "), sym_print(e, sym_mul(e, a, b->b)), puts("");
+			//printf("=> "), sym_print(e, b->a), puts("");
+			sym->a = sym_sub(e, sym_mul(e, a, b->b), b->a);
+			//printf("a="), sym_print(e, sym->a), puts("");
+		}
+
 		sym->b = sym_copy(e, b->b);
 		return sym;
 	}
@@ -115,6 +139,21 @@ sym_add(sym_env e, sym a, sym b)
 		sym->type = SYM_RATIO;
 		sym->a = sym_add(e, a->a, sym_mul(e, b, a->b));
 		sym->b = sym_copy(e, a->b);
+		return sym;
+	}
+
+	if (a->type == SYM_VECTOR && b->type == SYM_VECTOR) {
+		if (a->len < b->len) {
+			struct sym *c = a;
+			a = b;
+			b = c;
+		}
+
+		sym = sym_copy(e, a);
+
+		for (unsigned i = 0; i < b->len; i++)
+			sym->vector[i] = sym_add(e, a->vector[i], b->vector[i]);
+
 		return sym;
 	}
 
@@ -188,6 +227,9 @@ fractionize(sym_env e, sym s)
 sym
 sym_sub(sym_env e, sym a, sym b)
 {
+	//printf("a: "), sym_print(e, a), puts("");
+	//printf("b: "), sym_print(e, b), puts("");
+
 	if (a->type == SYM_RATIO || b->type == SYM_RATIO) {
 		sym A = sym_copy(e, a), B = sym_copy(e, b);
 
@@ -237,7 +279,7 @@ sym_sub(sym_env e, sym a, sym b)
 	}
 
 	if (a->sign && b->sign) {
-		if (sym_cmp(e, a, b) > 0) {
+		if (math_ucmp(a->sig, b->sig) > 0) {
 			sym->sig = math_usub(a->sig, b->sig);
 		} else {
 			sym->sig = math_usub(b->sig, a->sig);
@@ -269,14 +311,16 @@ sym_copy(sym_env e, sym s)
 {
 	if (!s) return NULL;
 	sym sym = sym_new(e, s->type);
-
-//	printf("copying: "), sym_print(e, s), puts("");
+	sym->sign = s->sign;
 
 	switch (s->type) {
 	case SYM_PRODUCT:
+	case SYM_CROSS:
 	case SYM_DIFFERENCE:
 	case SYM_SUM:
 	case SYM_POWER:
+	case SYM_SUBSCRIPT:
+	case SYM_EQUALITY:
 	case SYM_RATIO:
 		sym->a = sym_copy(e, s->a);
 		sym->b = sym_copy(e, s->b);
@@ -284,13 +328,22 @@ sym_copy(sym_env e, sym s)
 	case SYM_NUM:
 		sym->sig = math_ucopy(s->sig);
 		sym->exp = math_ucopy(s->exp);
-		sym->sign = s->sign;
 		break;
+	case SYM_INDETERMINATE:
+		sym->text = malloc(strlen(s->text) + 1);
+		strcpy(sym->text, s->text);
+		break;
+	case SYM_LIST:
+	case SYM_VECTOR: {
+		sym->vector = malloc(s->len * sizeof s->vector);
+		for (unsigned i = 0; i < s->len; i++)
+			sym->vector[i] = sym_copy(e, s->vector[i]);
+		sym->len = s->len;
+	} break;
 	default:
 		printf("unimplemented copier %d\n", s->type);
 		exit(1);
 	}
-
 
 	return sym;
 }
@@ -330,6 +383,17 @@ sym_mul(sym_env e, const sym a, const sym b)
 		sym->a = sym_mul(e, a->a, b);
 		sym->b = sym_mul(e, a->b, b);
 		return sym;
+	} else if (a->type == SYM_VECTOR && b->type == SYM_VECTOR) {
+		sym = NULL;
+
+		for (unsigned i = 0; i < a->len; i++) {
+			if (sym)
+				sym = sym_add(e, sym, sym_mul(e, a->vector[i], b->vector[i]));
+			else
+				sym = sym_mul(e, a->vector[i], b->vector[i]);
+		}
+
+		return sym;
 	} else if (a->type != SYM_NUM || b->type != SYM_NUM) {
 		sym->type = SYM_PRODUCT;
 		sym->a = sym_copy(e, a);
@@ -348,6 +412,7 @@ sym_mul(sym_env e, const sym a, const sym b)
 sym
 sym_div_(sym_env e, const sym a, const sym b)
 {
+	assert(a->type == SYM_NUM && b->type == SYM_NUM);
 	sym q = sym_new(e, SYM_NUM);
 	num r = NULL;
 	unsigned i = 0;
@@ -442,7 +507,7 @@ sym_root(sym_env e, const sym a, const sym b)
 	if (b->type != SYM_RATIO) exp = fractionize(e, b);
 	else exp = sym_copy(e, b);
 
-	exp = sym_simplify(e, exp, -1, 0);
+	exp = sym_simplify(e, exp);
 	sym sym = sym_new(e, SYM_POWER);
 	sym->a = sym_eval(e, a, 0);
 	sym->b = exp;
@@ -454,6 +519,12 @@ sym_root(sym_env e, const sym a, const sym b)
 sym
 sym_div(sym_env e, sym a, sym b)
 {
+	if (a->type != SYM_NUM || b->type != SYM_NUM) {
+		sym sym = sym_new(e, SYM_RATIO);
+		sym->a = a, sym->b = b;
+		return sym;
+	}
+
 	return sym_div_(e, a, b);
 #if 0
 	sym d0 = sym_copy(e, b);
@@ -479,101 +550,6 @@ sym_div(sym_env e, sym a, sym b)
 
 	return x0;
 #endif
-}
-
-#define PRINT_PARENTHESIZED(X)	  \
-	if ((X)->type != SYM_NUM && (X)->type != SYM_RATIO) { \
-		printf("\\left("); \
-		sym_print(e, X); \
-		printf("\\right)"); \
-	} else { \
-		sym_print(e, X); \
-	}
-
-void
-sym_print(sym_env e, sym s)
-{
-	if (!s) return;
-
-	switch (s->type) {
-	case SYM_PRODUCT:
-		PRINT_PARENTHESIZED(s->a);
-		printf("\\cdot");
-		PRINT_PARENTHESIZED(s->b);
-		break;
-	case SYM_SUM:
-		PRINT_PARENTHESIZED(s->a);
-		printf("+");
-		PRINT_PARENTHESIZED(s->b);
-		break;
-	case SYM_DIFFERENCE:
-		PRINT_PARENTHESIZED(s->a);
-		printf("-");
-		PRINT_PARENTHESIZED(s->b);
-		break;
-	case SYM_POWER:
-		PRINT_PARENTHESIZED(s->a);
-		printf("^{");
-		sym_print(e, s->b);
-		printf("}");
-		break;
-	case SYM_RATIO:
-		printf("\\frac{"), sym_print(e, s->a);
-		printf("}{"), sym_print(e, s->b);
-		printf("}");
-		break;
-	case SYM_VARIABLE:
-		printf("%s", s->variable);
-		break;
-	case SYM_NUM: {
-		num tmp = math_ucopy(s->exp);
-		num whole = s->sig;
-
-		while (!math_uzero(tmp)) {
-			if (whole) whole = whole->next;
-			math_udec(&tmp);
-		}
-
-		if (!s->sign) putchar('-');
-		math_print(whole);
-
-		num div = NULL;
-		for (num i = math_ucopy(s->exp);
-		     !math_uzero(i);
-		     math_udec(&i))
-			math_upush(&div, 0);
-		math_upush(&div, 1);
-
-		num fraction = NULL;
-		if (whole) whole = whole->prev;
-
-		if (!whole) {
-			whole = s->sig;
-			while (whole && whole->next) whole = whole->next;
-		}
-
-		while (whole) {
-			math_uprepend(&fraction, whole->x);
-			whole = whole->prev;
-		}
-
-		num r = NULL;
-		math_udiv2(&fraction, div, &r);
-
-		if (r) putchar('.');
-
-		int i = 0;
-
-		while (!math_uzero(r) && i < e->precision) {
-			num tmp = NULL, tmp2 = NULL;
-			r = math_umul(r, &(struct num){10,0,0});
-			math_udiv(r, div, &tmp, &tmp2);
-			math_print(tmp);
-			r = tmp2, i++;
-			fflush(stdout);
-		}
-	} break;
-	}
 }
 
 sym
@@ -607,121 +583,9 @@ sym_gcf(sym_env e, sym a, sym b)
 	return B;
 }
 
-static bool
-trivial(const sym s)
-{
-	switch (s->type) {
-	case SYM_DIFFERENCE:
-	case SYM_SUM: return trivial(s->a) && trivial(s->b);
-	case SYM_NUM: return true;
-	case SYM_RATIO: return s->a->type == SYM_NUM && s->b->type == SYM_NUM;
-	default: return false;
-	}
-}
-
-sym
-sym_simplify(sym_env e, sym s, int N, int suppress)
-{
-//	printf("simplifying: "), sym_print(s), puts("");
-	sym sym = s;
-
-	if (s->type == SYM_NUM) return s;
-
-	int num = N;
-
-	int triv = trivial(s);
-	if (!triv && N < 0 && !suppress) {
-		num = sym_hist_add(PRIO_ALGEBRA, e, s, "We wish to simplify (%d):", e->num_eq + 1);
-	} else if (!triv && !suppress) {
-		num = sym_hist_add(PRIO_ALGEBRA, e, s, "In calculating (%d), we need to simplify (%d).", N, e->num_eq + 1);
-	}
-
-	char *A = "numerator", *B = "denominator";
-	if (s->type != SYM_RATIO)
-		A = "lefthand side", B = "righthand side";
-	struct sym *a = sym_simplify(e, s->a, num, 0);
-	if (s->a != a && !trivial(s->a)) {
-		sym_hist_add(0, e, a, "Simplify the %s of (%d).", A, num);
-	}
-
-	struct sym *b = sym_simplify(e, s->b, num, 0);
-	if (s->b != b && !trivial(s->b)) {
-		sym_hist_add(0, e, b, "Simplify the %s of (%d).", B, num);
-	}
-
-	s->a = a, s->b = b;
-
-	switch (s->type) {
-	case SYM_NUM: break;
-	case SYM_POWER: return s;
-	case SYM_SUM: return sym_add(e, s->a, s->b);
-	case SYM_DIFFERENCE: return sym_sub(e, s->a, s->b);
-	case SYM_PRODUCT:
-		sym = sym_mul(e, s->a, s->b);
-		if (sym->type != SYM_PRODUCT)
-			sym = sym_simplify(e, sym, num, 0);
-		break;
-	case SYM_RATIO: {
-		if (s->a->type == SYM_RATIO) {
-			sym = sym_copy(e, s->a);
-			sym->b = sym_mul(e, sym->b, s->b);
-			sym = sym_simplify(e, sym, num, 0);
-			break;
-		}
-
-		if (s->b->type == SYM_RATIO) {
-			sym = sym_new(e, SYM_RATIO);
-			sym->a = sym_mul(e, s->a, s->b->b);
-			sym->b = sym_copy(e, s->b->a);
-			sym = sym_simplify(e, sym, num, 0);
-			break;
-		}
-
-		if (s->a->type != SYM_NUM || s->b->type != SYM_NUM) {
-			sym = sym_new(e, SYM_RATIO);
-			sym->a = sym_simplify(e, s->a, num, 0);
-			sym->b = sym_simplify(e, s->b, num, 0);
-			break;
-		}
-
-		while (!math_uzero(s->a->exp)) {
-			math_udec(&s->a->exp);
-			math_ushift(&s->b->sig);
-		}
-
-		while (!math_uzero(s->b->exp)) {
-			math_udec(&s->b->exp);
-			math_ushift(&s->a->sig);
-		}
-
-		math_unorm(&s->b->exp);
-		math_unorm(&s->a->exp);
-
-		struct sym *gcf = sym_gcf(e, s->a, s->b);
-
-		if (!gcf || sym_cmp(e, gcf, DIGIT(1)) == 0) break;
-
-		sym = sym_new(e, SYM_RATIO);
-		sym->a = sym_div(e, s->a, gcf);
-		sym->b = sym_div(e, s->b, gcf);
-
-		/* num = sym_hist_add(0, e, s, "We wish to simplify:"); */
-		/* sym_hist_add(0, e, sym, "The ratio (%d) may be simplified:", num); */
-
-		if (sym_cmp(e, sym->b, DIGIT(1)) == 0)
-			sym = sym->a;
-	} break;
-	default: printf("unimplemented: %d\n", s->type);
-	}
-
-	if (!triv && sym != s)
-		sym_hist_add(0, e, sym, "(%d) simplifies to (%d).", num, e->num_eq + 1);
-
-	return sym;
-}
-
+/* Wtf is this for? */
 static sym
-sym_normalize(sym_env e, const sym a)
+normalize_num(sym_env e, const sym a)
 {
 	if (!a) return NULL;
 	if (!a->sig) return sym_copy(e, a);
@@ -742,7 +606,7 @@ sym_pow(sym_env e, const sym a, const sym b)
 {
 	/* TODO: Must all be numbers. */
 
-	sym B = sym_normalize(e, b);
+	sym B = normalize_num(e, b);
 	num exp = B->sig;
 	math_udec(&exp);
 
@@ -760,57 +624,8 @@ sym_pow(sym_env e, const sym a, const sym b)
 	return NULL;
 }
 
-sym
-sym_eval(sym_env e, sym s, enum priority prio)
-{
-	if (!s) return NULL;
-
-	if (s->type == SYM_NUM) return sym_copy(e, s);
-
-	bool triv = 0;
-
-	int num = -1;
-
-	if (!triv || prio == PRIO_ANSWER) {
-		num = sym_hist_add(prio, e, s, "Our goal is to evaluate (%d).", e->num_eq + 1);
-		s = sym_simplify(e, s, num, 1);
-		num = sym_hist_add(prio, e, s, "The simplified form of (%d) is (%d).", num, e->num_eq + 1);
-	}
-
-	switch (s->type) {
-	case SYM_SUM:
-		s = sym_add(e, sym_eval(e, s->a, prio), sym_eval(e, s->b, prio));
-		break;
-	case SYM_DIFFERENCE:
-		s = sym_sub(e, sym_eval(e, s->a, prio), sym_eval(e, s->b, prio));
-		break;
-	case SYM_PRODUCT:
-		s = sym_mul(e, sym_eval(e, s->a, prio), sym_eval(e, s->b, prio));
-		break;
-	case SYM_RATIO: {
-		sym a = sym_eval(e, s->a, prio);
-		sym b = sym_eval(e, s->b, prio);
-		s = sym_div(e, a, b);
-		sym_hist_add(prio, e, s, "Straightforward evaluation of (%d) yields (%d).", num, e->num_eq + 1);
-		return s;
-	} break;
-	case SYM_POWER:
-		s = sym_root(e, s->a, s->b);
-		break;
-	case SYM_NUM:
-		s = sym_copy(e, s);
-		break;
-	default:
-		assert(false);
-	}
-
-	if (!triv)
-		sym_hist_add(prio, e, s, "Our numeric solution for (%d) is:", num);
-
-	return s;
-}
-
-void sym_print_history(sym_env env)
+void
+sym_print_history(sym_env env)
 {
 	puts("\\documentclass{article}");
 	puts("\\usepackage{amsmath}");
@@ -825,4 +640,51 @@ void sym_print_history(sym_env env)
 	}
 
 	puts("\\end{document}");
+}
+
+sym
+sym_factor(sym_env e, const sym s)
+{
+	return NULL;
+}
+
+void
+sym_add_coefficient(sym_env env,
+                    sym poly,
+                    const sym coefficient,
+                    const sym exponent)
+{
+	if (!poly->polynomial) {
+		poly->polynomial = malloc(sizeof *poly->polynomial);
+		memset(poly->polynomial, 0, sizeof *poly->polynomial);
+		poly->polynomial->coefficient = sym_copy(env, coefficient);
+		poly->polynomial->exponent = sym_copy(env, exponent);
+	} else {
+		struct polynomial *tmp = poly->polynomial;
+		while (tmp->next) tmp = tmp->next;
+		tmp->next = malloc(sizeof *tmp);
+		tmp = tmp->next;
+		memset(tmp, 0, sizeof *tmp);
+		tmp->coefficient = sym_copy(env, coefficient);
+		tmp->exponent = sym_copy(env, exponent);
+	}
+}
+
+void
+sym_set_coords(sym_env env, const char *coords)
+{
+	env->coords = malloc(strlen(coords) + 1);
+	strcpy(env->coords, coords);
+}
+
+void
+sym_add_vec(sym_env env, sym vec, unsigned idx, const sym x)
+{
+	if (idx <= vec->len) {
+		vec->vector = realloc(vec->vector,
+		                      (idx + 1) * sizeof *vec->vector);
+		vec->len = idx + 1;
+	}
+
+	vec->vector[idx] = sym_copy(env, x);
 }

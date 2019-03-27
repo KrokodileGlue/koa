@@ -5,11 +5,12 @@
 #include <stdint.h>
 
 #include "arithmetic.h"
+#include "latex.h"
 #include "cas.h"
 
 struct op {
+	enum sym_type sym_type;
 	char *body, *body2;
-
 	int prec;
 
 	enum {
@@ -26,30 +27,35 @@ struct op {
 		TERNARY
 	} type;
 } operators[] = {
-	{ "+", "n", 6, RIGHT, PREFIX },
-	{ "-", "n", 6, RIGHT, PREFIX },
-	{ "{", "}", 6, LEFT,  GROUP  },
-	{ "\\left(", "\\right)", 6, LEFT,  GROUP  },
-	{ "\\cdot", "n", 5, LEFT,  BINARY },
-	{ "^", "n", 5, LEFT,  BINARY },
-	{ "*", "n", 5, LEFT,  BINARY },
-	{ "/", "n", 5, LEFT,  BINARY },
-	{ "+", "n", 4, LEFT,  BINARY },
-	{ "-", "n", 4, LEFT,  BINARY },
-	{ "=", "n", 2, LEFT,  BINARY },
-	{ ",", "n", 1, RIGHT, BINARY }
+	{ SYM_NULL, "-", "n", 6, RIGHT, PREFIX },
+	{ SYM_NULL, "{", "}", 6, LEFT, GROUP },
+	{ SYM_NULL, "\\left(", "\\right)", 6, LEFT, GROUP },
+	{ SYM_NULL, "(", ")", 6, LEFT, GROUP },
+	{ SYM_NULL, "[", "]", 6, LEFT, GROUP },
+	{ SYM_NULL, "\\left[", "\\right]", 6, LEFT, GROUP },
+	{ SYM_SUBSCRIPT, "_", "n", 9, LEFT, BINARY },
+	{ SYM_POWER, "^", "n", 5, LEFT, BINARY },
+	{ SYM_PRODUCT, "\\cdot", "n", 5, LEFT, BINARY },
+	{ SYM_PRODUCT, "*", "n", 5, LEFT, BINARY },
+	{ SYM_CROSS, "\\times", "n", 5, LEFT, BINARY },
+	{ SYM_RATIO, "/", "n", 5, LEFT, BINARY },
+	{ SYM_SUM, "+", "n", 4, LEFT, BINARY },
+	{ SYM_DIFFERENCE, "-", "n", 4, LEFT, BINARY },
+	{ SYM_EQUALITY, "=", "n", 2, LEFT, BINARY }
 };
 
-#define FOR(I,X) \
-for (size_t I = 0; \
-     I < sizeof (X) / sizeof (X)[0]; \
-     i++)
+#define FOR(I,X)	  \
+	for (size_t I = 0; \
+	     I < sizeof (X) / sizeof (X)[0]; \
+	     i++)
 
-struct op *get_infix_op(const char *c)
+struct op *
+get_infix_op(const char *c)
 {
 	FOR(i, operators) {
 		size_t len = strlen(operators[i].body);
 		if (!strncmp(operators[i].body, c, len)
+		    && operators[i].type != GROUP
 		    && operators[i].type != PREFIX)
 			return operators + i;
 	}
@@ -87,54 +93,105 @@ sym_parse_latex(sym_env env, const char **s, int prec)
 	while (isspace(**s)) (*s)++;
 	struct op *op = get_prefix_op(*s);
 
-	if (op && op->type == GROUP) {
+	unsigned i = 0;
+
+	if (**s == '<') {
+		a = sym_new(env, SYM_VECTOR);
+		(*s)++;
+		while (1) {
+			struct sym *tmp = sym_parse_latex(env, s, prec);
+
+			if (!tmp) {
+				if (**s != '>') {
+					puts("parse error");
+					exit(1);
+				} else {
+					(*s)++;
+					break;
+				}
+			}
+
+			sym_add_vec(env, a, i++, tmp);
+			if (**s == ',') (*s)++;
+		}
+	} else if (op && op->type == GROUP) {
 		*s += strlen(op->body);
 		a = sym_parse_latex(env, s, 0);
 		/* TODO: Errors. */
 		if (strncmp(*s, op->body2, strlen(op->body2)))
 			puts("parse error"), exit(1);
 		*s += strlen(op->body2);
+	} else if (op) {
+		*s += strlen(op->body);
+		a = sym_parse_latex(env, s, op->prec);
+		if (!strcmp(op->body, "-"))
+			a->sign = 0;
 	} else if (!strncmp(*s, "\\frac", 5)) {
 		*s += 5;
 		a = sym_new(env, SYM_RATIO);
 		a->a = sym_parse_latex(env, s, 6);
 		a->b = sym_parse_latex(env, s, 6);
-	} else if (**s == '-' || isdigit(**s)) {
+	} else if (isdigit(**s)) {
 		a = sym_parse_number(env, s);
+	} else if ((**s >= 'a' && **s <= 'z') || (**s >= 'A' && **s <= 'Z')) {
+		a = sym_new(env, SYM_INDETERMINATE);
+		a->text = malloc(2);
+		a->text[0] = **s;
+		a->text[1] = 0;
+		(*s)++;
 	} else {
-		puts("Couldn't parse line."), printf("%c\n", **s);
-		exit(1);
+		return NULL;
 	}
 
 	while (isspace(**s)) (*s)++;
 
-	while (prec < get_prec(*s, prec)) {
-		struct op *op = get_infix_op(*s);
-		if (!op) break;
-		*s += strlen(op->body);
-		sym b = sym_new(env, SYM_RATIO);
-		b->a = a;
-		b->b = sym_parse_latex(env, s, op->ass == LEFT ? op->prec : op->prec - 1);
+	struct sym *vec = NULL;
+	i = 0;
 
-		if (!strcmp(op->body, "+")) {
-			b->type = SYM_SUM;
-		} else if (!strcmp(op->body, "-")) {
-			b->type = SYM_DIFFERENCE;
-		} else if (!strcmp(op->body, "*")) {
-			b->type = SYM_PRODUCT;
-		} else if (!strcmp(op->body, "^")) {
-			b->type = SYM_POWER;
-		} else if (!strcmp(op->body, "\\cdot")) {
-			b->type = SYM_PRODUCT;
-		} else if (!strcmp(op->body, "/")) {
-			b->type = SYM_RATIO;
+	while (prec < get_prec(*s, prec) || (!get_infix_op(*s) && **s)) {
+		int flag = 0;
+		struct op *op = get_infix_op(*s);
+		if (!op) {
+			flag = 1;
+			op = get_infix_op("*");
+			if (prec >= op->prec) break;
 		} else {
+			*s += strlen(op->body);
+		}
+
+		const char *x = *s;
+		sym tmp = sym_parse_latex(env, s, op->ass == LEFT ? op->prec : op->prec - 1);
+
+		if (!tmp) break;
+		if (tmp->type == SYM_NUM && flag) {
+			*s = x;
 			break;
 		}
 
-		a = b;
+		sym b = sym_new(env, SYM_RATIO);
+		b->a = a;
+		b->b = tmp;
+
+		b->type = op->sym_type;
+
+		if (b->type == SYM_SUM || b->type == SYM_DIFFERENCE) {
+			if (b->type == SYM_DIFFERENCE)
+				b->b->sign = !b->b->sign;
+
+			if (!vec) {
+				vec = sym_new(env, SYM_LIST);
+				sym_add_vec(env, vec, i++, b->a);
+				sym_add_vec(env, vec, i++, b->b);
+			} else {
+				sym_add_vec(env, vec, i++, b->b);
+			}
+
+			a = vec;
+		} else {
+			a = b;
+		}
 	}
-	
+
 	return a;
 }
 
@@ -145,8 +202,7 @@ sym_parse_number(sym_env env, const char **s)
 	_Bool sign = true, dec = false;
 
 	while (**s && isspace(**s)) (*s)++;
-	if (**s == '-') sign = false, (*s)++;
-	while (**s && isspace(**s)) (*s)++;
+
 	while (**s && (isdigit(**s) || **s == '.')) {
 		if (**s == '.') {
 			dec = 1, (*s)++;
@@ -168,4 +224,3 @@ sym_parse_number(sym_env env, const char **s)
 
 	return a;
 }
-
