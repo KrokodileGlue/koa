@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -27,14 +28,15 @@ struct op {
 		TERNARY
 	} type;
 } operators[] = {
-	{ SYM_NULL, "-", "n", 6, RIGHT, PREFIX },
+	{ SYM_NEGATIVE, "-", "n", 6, RIGHT, PREFIX },
 	{ SYM_NULL, "{", "}", 6, LEFT, GROUP },
 	{ SYM_NULL, "\\left(", "\\right)", 6, LEFT, GROUP },
 	{ SYM_NULL, "(", ")", 6, LEFT, GROUP },
 	{ SYM_NULL, "[", "]", 6, LEFT, GROUP },
 	{ SYM_NULL, "\\left[", "\\right]", 6, LEFT, GROUP },
+	{ SYM_ABS, "\\left|", "\\right|", 6, LEFT, GROUP },
 	{ SYM_SUBSCRIPT, "_", "n", 9, LEFT, BINARY },
-	{ SYM_POWER, "^", "n", 5, LEFT, BINARY },
+	{ SYM_POWER, "^", "n", 9, LEFT, BINARY },
 	{ SYM_PRODUCT, "\\cdot", "n", 5, LEFT, BINARY },
 	{ SYM_PRODUCT, "*", "n", 5, LEFT, BINARY },
 	{ SYM_CROSS, "\\times", "n", 5, LEFT, BINARY },
@@ -85,8 +87,8 @@ get_prec(const char *c, int prec)
 	return prec;
 }
 
-sym
-sym_parse_latex(sym_env env, const char **s, int prec)
+static struct sym *
+parse(sym_env env, const char **s, int prec)
 {
 	sym a = NULL;
 
@@ -99,7 +101,7 @@ sym_parse_latex(sym_env env, const char **s, int prec)
 		a = sym_new(env, SYM_VECTOR);
 		(*s)++;
 		while (1) {
-			struct sym *tmp = sym_parse_latex(env, s, prec);
+			struct sym *tmp = parse(env, s, prec);
 
 			if (!tmp) {
 				if (**s != '>') {
@@ -116,28 +118,70 @@ sym_parse_latex(sym_env env, const char **s, int prec)
 		}
 	} else if (op && op->type == GROUP) {
 		*s += strlen(op->body);
-		a = sym_parse_latex(env, s, 0);
+		a = parse(env, s, 0);
+
 		/* TODO: Errors. */
 		if (strncmp(*s, op->body2, strlen(op->body2)))
 			puts("parse error"), exit(1);
+
 		*s += strlen(op->body2);
+
+		if (op->sym_type == SYM_ABS) {
+			sym tmp = sym_new(env, SYM_ABS);
+			tmp->a = a;
+			a = tmp;
+		}
 	} else if (op) {
 		*s += strlen(op->body);
-		a = sym_parse_latex(env, s, op->prec);
-		if (!strcmp(op->body, "-"))
-			a->sign = 0;
+		a = sym_new(env, op->sym_type);
+		a->a = parse(env, s, op->prec);
 	} else if (!strncmp(*s, "\\frac", 5)) {
 		*s += 5;
 		a = sym_new(env, SYM_RATIO);
-		a->a = sym_parse_latex(env, s, 6);
-		a->b = sym_parse_latex(env, s, 6);
+		a->a = parse(env, s, 6);
+		a->b = parse(env, s, 6);
+	} else if (!strncmp(*s, "\\ln", 3)) {
+		*s += 3;
+		a = sym_new(env, SYM_LOGARITHM);
+		a->a = sym_new(env, SYM_CONSTANT);
+		a->a->constant = CONST_E;
+		a->b = parse(env, s, 6);
+	} else if (!strncmp(*s, "\\log", 4)) {
+		*s += 4;
+		a = sym_new(env, SYM_LOGARITHM);
+
+		if (**s == '_') {
+			(*s)++;
+
+			/*
+			 * TODO: could totally break with like .2 or
+			 * something.
+			 */
+			if (isdigit(**s)) {
+				a->a = sym_copy(env, DIGIT(**s - '0'));
+				(*s)++;
+			} else {
+				a->a = parse(env, s, 6);
+			}
+		} else {
+			a->a = sym_copy(env, DIGIT(10));
+		}
+
+		a->b = parse(env, s, 6);
 	} else if (isdigit(**s)) {
 		a = sym_parse_number(env, s);
-	} else if ((**s >= 'a' && **s <= 'z') || (**s >= 'A' && **s <= 'Z')) {
-		a = sym_new(env, SYM_INDETERMINATE);
-		a->text = malloc(2);
-		a->text[0] = **s;
-		a->text[1] = 0;
+	} else if ((**s >= 'a' && **s <= 'z')
+	           || (**s >= 'A' && **s <= 'Z')) {
+		if (**s == 'e') {
+			a = sym_new(env, SYM_CONSTANT);
+			a->constant = CONST_E;
+		} else {
+			a = sym_new(env, SYM_INDETERMINATE);
+			a->text = malloc(2);
+			a->text[0] = **s;
+			a->text[1] = 0;
+		}
+
 		(*s)++;
 	} else {
 		return NULL;
@@ -145,8 +189,21 @@ sym_parse_latex(sym_env env, const char **s, int prec)
 
 	while (isspace(**s)) (*s)++;
 
-	struct sym *vec = NULL;
 	i = 0;
+
+	if (a->type == SYM_RATIO
+	    && a->a->type == SYM_INDETERMINATE
+	    && !strcmp(a->a->text, "d")
+	    && a->b->type == SYM_PRODUCT
+	    && a->b->a->type == SYM_INDETERMINATE
+	    && a->b->b->type == SYM_INDETERMINATE
+	    && !strcmp(a->b->a->text, "d")) {
+		char *tmp = malloc(strlen(a->b->b->text) + 1);
+		strcpy(tmp, a->b->b->text);
+		a = sym_new(env, SYM_DERIVATIVE);
+		a->wrt = tmp;
+		a->deriv = parse(env, s, 4);
+	}
 
 	while (prec < get_prec(*s, prec) || (!get_infix_op(*s) && **s)) {
 		int flag = 0;
@@ -160,7 +217,7 @@ sym_parse_latex(sym_env env, const char **s, int prec)
 		}
 
 		const char *x = *s;
-		sym tmp = sym_parse_latex(env, s, op->ass == LEFT ? op->prec : op->prec - 1);
+		sym tmp = parse(env, s, op->ass == LEFT ? op->prec : op->prec - 1);
 
 		if (!tmp) break;
 		if (tmp->type == SYM_NUM && flag) {
@@ -174,25 +231,22 @@ sym_parse_latex(sym_env env, const char **s, int prec)
 
 		b->type = op->sym_type;
 
-		if (b->type == SYM_SUM || b->type == SYM_DIFFERENCE) {
-			if (b->type == SYM_DIFFERENCE)
-				b->b->sign = !b->b->sign;
-
-			if (!vec) {
-				vec = sym_new(env, SYM_LIST);
-				sym_add_vec(env, vec, i++, b->a);
-				sym_add_vec(env, vec, i++, b->b);
-			} else {
-				sym_add_vec(env, vec, i++, b->b);
-			}
-
-			a = vec;
-		} else {
-			a = b;
-		}
+		a = b;
 	}
 
 	return a;
+}
+
+sym
+sym_parse_latex(sym_env env, const char **s)
+{
+	return parse(env, s, 0);
+}
+
+sym
+sym_parse_latex2(sym_env env, const char *s)
+{
+	return parse(env, &s, 0);
 }
 
 sym

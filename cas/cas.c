@@ -6,6 +6,7 @@
 #include <stdbool.h>
 #include <assert.h>
 
+#include "derivative.h"
 #include "arithmetic.h"
 #include "simplify.h"
 #include "cas.h"
@@ -27,6 +28,7 @@ void
 sym_free(sym_env e, sym s)
 {
 	switch (s->type) {
+	case SYM_LOGARITHM:
 	case SYM_POWER:
 	case SYM_SUBSCRIPT:
 	case SYM_EQUALITY:
@@ -44,12 +46,14 @@ sym_free(sym_env e, sym s)
 	case SYM_VARIABLE:
 		free(s->text);
 		break;
-	case SYM_LIST:
 	case SYM_VECTOR:
 		for (unsigned i = 0; i < s->len; i++)
 			sym_free(e, s->vector[i]);
 		free(s->vector);
 		break;
+	case SYM_NEGATIVE:
+	case SYM_ABS: sym_free(e, s->a);
+	case SYM_CONSTANT: break;
 	default:
 		printf("Unimplemented free-er: %d\n", s->type);
 	}
@@ -65,6 +69,10 @@ sym_env_new(enum priority prio, unsigned precision)
 	memset(env, 0, sizeof *env);
 	env->precision = precision;
 	env->prio = prio;
+
+	/* Initialize global variables. */
+	sym_init_differentiation(env);
+	sym_init_simplification(env);
 
 	return env;
 }
@@ -116,19 +124,13 @@ sym_add(sym_env e, sym a, sym b)
 {
 	sym sym = sym_new(e, SYM_NUM);
 
-	//sym_print(e, a), printf("  +  ");
-	//sym_print(e, b), puts("");
-
 	if (b->type == SYM_RATIO) {
 		sym->type = SYM_RATIO;
 
 		if (b->sign) {
 			sym->a = sym_add(e, b->a, sym_mul(e, a, b->b));
 		} else {
-			//printf("components: "), sym_print(e, sym_mul(e, a, b->b)), puts("");
-			//printf("=> "), sym_print(e, b->a), puts("");
 			sym->a = sym_sub(e, sym_mul(e, a, b->b), b->a);
-			//printf("a="), sym_print(e, sym->a), puts("");
 		}
 
 		sym->b = sym_copy(e, b->b);
@@ -225,29 +227,20 @@ fractionize(sym_env e, sym s)
 }
 
 sym
+sym_negate(sym_env e, const sym s)
+{
+	sym ret = sym_new(e, SYM_NEGATIVE);
+	ret->a = sym_copy(e, s);
+	return ret;
+}
+
+sym
 sym_sub(sym_env e, sym a, sym b)
 {
-	//printf("a: "), sym_print(e, a), puts("");
-	//printf("b: "), sym_print(e, b), puts("");
-
-	if (a->type == SYM_RATIO || b->type == SYM_RATIO) {
-		sym A = sym_copy(e, a), B = sym_copy(e, b);
-
-		if (A->type != SYM_RATIO) A = fractionize(e, A);
-		if (B->type != SYM_RATIO) B = fractionize(e, B);
-
-		sym tmp = sym_new(e, SYM_RATIO);
-
-		tmp->b = sym_mul(e, A->b, B->b);
-		tmp->a = sym_sub(e, sym_mul(e, A->a, B->b),
-				sym_mul(e, B->a, A->b));
-
-		return tmp;
-	}
-
 	sym sym = sym_new(e, SYM_NUM);
 
-	if (a->type != SYM_NUM || b->type != SYM_NUM) {
+	if ((a->type != SYM_NUM && a->type != SYM_NEGATIVE)
+	    || (a->type != SYM_NUM && a->type != SYM_NEGATIVE)) {
 		sym->type = SYM_DIFFERENCE;
 		sym->a = sym_copy(e, a);
 		sym->b = sym_copy(e, b);
@@ -266,44 +259,43 @@ sym_sub(sym_env e, sym a, sym b)
 
 	sym->exp = math_ucopy(a->exp);
 
-	if (!a->sign && b->sign) {
+	/* Fix. */
+
+	bool asign = !(a->type == SYM_NEGATIVE);
+	bool bsign = !(b->type == SYM_NEGATIVE);
+
+	if (!asign) a = a->a;
+	if (!bsign) b = b->a;
+
+	/* Stuff starts. */
+
+	if (!asign && bsign) {
 		sym->sig = math_uadd(a->sig, b->sig);
-		sym->sign = 0;
-		return sym;
 	}
 
-	if (a->sign && !b->sign) {
+	if (a->sign && !bsign) {
 		sym->sig = math_uadd(a->sig, b->sig);
-		sym->sign = 1;
-		return sym;
 	}
 
-	if (a->sign && b->sign) {
+	if (asign && bsign) {
 		if (math_ucmp(a->sig, b->sig) > 0) {
 			sym->sig = math_usub(a->sig, b->sig);
 		} else {
 			sym->sig = math_usub(b->sig, a->sig);
-			sym->sign = 0;
+			sym = sym_negate(e, sym);
 		}
 	}
 
-	if (!a->sign && !b->sign) {
+	if (!asign && !bsign) {
 		if (sym_cmp(e, a, b) > 0) {
 			sym->sig = math_usub(a->sig, b->sig);
-			sym->sign = 0;
+			sym = sym_negate(e, sym);
 		} else {
 			sym->sig = math_usub(a->sig, b->sig);
 		}
 	}
 
 	return sym;
-}
-
-static bool
-sym_is_zero(sym s)
-{
-	if (s->type != SYM_NUM) return false;
-	return math_uzero(s->sig);
 }
 
 sym
@@ -314,6 +306,10 @@ sym_copy(sym_env e, sym s)
 	sym->sign = s->sign;
 
 	switch (s->type) {
+	case SYM_CONSTANT:
+		sym->constant = s->constant;
+		break;
+	case SYM_LOGARITHM:
 	case SYM_PRODUCT:
 	case SYM_CROSS:
 	case SYM_DIFFERENCE:
@@ -333,13 +329,21 @@ sym_copy(sym_env e, sym s)
 		sym->text = malloc(strlen(s->text) + 1);
 		strcpy(sym->text, s->text);
 		break;
-	case SYM_LIST:
 	case SYM_VECTOR: {
 		sym->vector = malloc(s->len * sizeof s->vector);
 		for (unsigned i = 0; i < s->len; i++)
 			sym->vector[i] = sym_copy(e, s->vector[i]);
 		sym->len = s->len;
 	} break;
+	case SYM_DERIVATIVE:
+		sym->wrt = malloc(strlen(s->wrt) + 1);
+		strcpy(sym->wrt, s->wrt);
+		sym->deriv = sym_copy(e, s->deriv);
+		break;
+	case SYM_NEGATIVE:
+	case SYM_ABS:
+		sym->a = sym_copy(e, s->a);
+		break;
 	default:
 		printf("unimplemented copier %d\n", s->type);
 		exit(1);
@@ -604,6 +608,13 @@ normalize_num(sym_env e, const sym a)
 sym
 sym_pow(sym_env e, const sym a, const sym b)
 {
+	if (a->type != SYM_NUM || b->type != SYM_NUM) {
+		struct sym *tmp = sym_new(e, SYM_POWER);
+		tmp->a = sym_copy(e, a);
+		tmp->b = sym_copy(e, b);
+		return tmp;
+	}
+
 	/* TODO: Must all be numbers. */
 
 	sym B = normalize_num(e, b);

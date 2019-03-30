@@ -19,12 +19,49 @@ void
 sym_print(sym_env e, sym s)
 {
 	if (!s) return;
-	if (!s->sign) putchar('-');
 
 	switch (s->type) {
+	case SYM_NEGATIVE:
+		printf("-");
+		PRINT_PARENTHESIZED(s->a);
+		break;
+	case SYM_CONSTANT:
+		switch (s->constant) {
+		case CONST_E: printf("e"); break;
+		case CONST_PI: printf("\\pi "); break;
+		}
+		break;
+	case SYM_ABS:
+		printf("\\left|");
+		sym_print(e, s->a);
+		printf("\\right|");
+		break;
+	case SYM_LOGARITHM:
+		if (s->a->type == SYM_CONSTANT
+		    && s->a->constant == CONST_E) {
+			printf("\\ln");
+		} else {
+			printf("\\log_{");
+			sym_print(e, s->a);
+			printf("}");
+		}
+
+		printf("\\left(");
+		sym_print(e, s->b);
+		printf("\\right)");
+		break;
+	case SYM_DERIVATIVE:
+		printf("\\frac{d}{d%s}{", s->wrt);
+		sym_print(e, s->deriv);
+		printf("}");
+		break;
 	case SYM_PRODUCT:
 		PRINT_PARENTHESIZED(s->a);
-		if (s->b->type != SYM_INDETERMINATE) printf("\\cdot");
+		if (s->b->type != SYM_POWER
+		    || (s->b->type == SYM_POWER
+		        && s->b->a->type != SYM_INDETERMINATE)) {
+			printf("\\cdot ");
+		}
 		PRINT_PARENTHESIZED(s->b);
 		break;
 	case SYM_CROSS:
@@ -43,8 +80,17 @@ sym_print(sym_env e, sym s)
 		PRINT_PARENTHESIZED(s->b);
 		break;
 	case SYM_POWER:
-		PRINT_PARENTHESIZED(s->a);
-		printf("^{");
+		printf("{");
+
+		if (s->a->type != SYM_INDETERMINATE) {
+			printf("\\left(");
+			sym_print(e, s->a);
+			printf("\\right)");
+		} else {
+			sym_print(e, s->a);
+		}
+
+		printf("}^{");
 		sym_print(e, s->b);
 		printf("}");
 		break;
@@ -96,14 +142,6 @@ sym_print(sym_env e, sym s)
 			if (i != s->len - 1) printf(" ");
 		}
 		printf(">");
-	} break;
-	case SYM_LIST: {
-		printf("{");
-		for (unsigned i = 0; i < s->len; i++) {
-			sym_print(e, s->vector[i]);
-			if (i != s->len - 1) printf("+");
-		}
-		printf("}");
 	} break;
 	case SYM_NUM: {
 		num tmp = math_ucopy(s->exp);

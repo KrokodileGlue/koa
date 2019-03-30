@@ -46,16 +46,6 @@ sym_eval(sym_env e, sym s, enum priority prio)
 		for (unsigned i = 0; i < s->len; i++)
 			s->vector[i] = sym_eval(e, s->vector[i], prio);
 		break;
-	case SYM_LIST: {
-		struct sym *tmp = NULL;
-
-		for (unsigned i = 0; i < s->len; i++) {
-			struct sym *element = sym_eval(e, s->vector[i], prio);
-			tmp = tmp ? sym_add(e, tmp, element) : element;
-		}
-
-		return tmp;
-	} break;
 	default:
 		assert(false);
 	}
