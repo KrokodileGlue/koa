@@ -101,47 +101,6 @@ struct sym_env {
 
 typedef struct sym_env *sym_env;
 
-static bool
-binary(const sym s)
-{
-	switch (s->type) {
-	case SYM_RATIO:
-	case SYM_PRODUCT:
-	case SYM_CROSS:
-	case SYM_SUM:
-	case SYM_DIFFERENCE:
-	case SYM_POWER:
-	case SYM_SUBSCRIPT:
-	case SYM_EQUALITY:
-	case SYM_LOGARITHM:
-		return true;
-	default:
-		return false;
-	}
-}
-
-static bool
-unary(const sym s)
-{
-	switch (s->type) {
-	case SYM_DERIVATIVE:
-	case SYM_NEGATIVE:
-	case SYM_ABS:
-		return true;
-	default:
-		return false;
-	}
-}
-
-#include "arithmetic.h"
-
-static bool
-sym_is_zero(sym s)
-{
-	if (s->type != SYM_NUM) return false;
-	return math_uzero(s->sig);
-}
-
 sym_env sym_env_new(enum priority prio, unsigned precision);
 sym sym_new(sym_env env, enum sym_type type);
 sym sym_add(sym_env env, const sym a, const sym b);

@@ -105,7 +105,7 @@ parse(sym_env env, const char **s, int prec)
 
 			if (!tmp) {
 				if (**s != '>') {
-					puts("parse error");
+					puts("parse error 1");
 					exit(1);
 				} else {
 					(*s)++;
@@ -121,8 +121,13 @@ parse(sym_env env, const char **s, int prec)
 		a = parse(env, s, 0);
 
 		/* TODO: Errors. */
-		if (strncmp(*s, op->body2, strlen(op->body2)))
-			puts("parse error"), exit(1);
+		if (strncmp(*s, op->body2, strlen(op->body2))) {
+			puts("parse error");
+			printf("expected %s at %s\n",
+			       op->body2,
+			       *s);
+			exit(1);
+		}
 
 		*s += strlen(op->body2);
 
@@ -220,10 +225,10 @@ parse(sym_env env, const char **s, int prec)
 		sym tmp = parse(env, s, op->ass == LEFT ? op->prec : op->prec - 1);
 
 		if (!tmp) break;
-		if (tmp->type == SYM_NUM && flag) {
-			*s = x;
-			break;
-		}
+		/* if (tmp->type == SYM_NUM && flag) { */
+		/* 	*s = x; */
+		/* 	break; */
+		/* } */
 
 		sym b = sym_new(env, SYM_RATIO);
 		b->a = a;
@@ -252,7 +257,7 @@ sym_parse_latex2(sym_env env, const char *s)
 sym
 sym_parse_number(sym_env env, const char **s)
 {
-	num x = NULL, num, exp = NULL;
+	num x = NULL, exp = NULL;
 	_Bool sign = true, dec = false;
 
 	while (**s && isspace(**s)) (*s)++;

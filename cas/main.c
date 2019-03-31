@@ -36,7 +36,7 @@ line(sym_env env)
 		sym_print_history(env);
 		break;
 	case 'p':
-		sscanf(l + 1, "%d", &env->precision);
+		sscanf(l + 1, "%u", &env->precision);
 		break;
 	case 'i': {
 		char x[2] = {0};

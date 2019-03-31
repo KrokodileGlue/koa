@@ -1,19 +1,31 @@
+#include <stdbool.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
 #include <stdio.h>
 
 #include "arithmetic.h"
+#include "util.h"
 #include "cas.h"
 
-#define PRINT_PARENTHESIZED(X)	  \
-	if ((X)->type != SYM_NUM && (X)->type != SYM_RATIO && (X)->type != SYM_PRODUCT && (X)->type != SYM_SUBSCRIPT && (X)->type != SYM_INDETERMINATE) { \
-		printf("\\left("); \
-		sym_print(e, X); \
-		printf("\\right)"); \
-	} else { \
-		sym_print(e, X); \
+#define print(X) sym_print(e, X)
+
+#define paren(X) (printf("\\left("),	\
+                  sym_print(e, X),	\
+                  printf("\\right)"))
+
+static bool
+weird(const sym s)
+{
+	if (binary(s)) {
+		if (s->type == SYM_POWER
+		    && s->a->type == SYM_INDETERMINATE)
+			return false;
+		return true;
 	}
+
+	return false;
+}
 
 void
 sym_print(sym_env e, sym s)
@@ -21,9 +33,11 @@ sym_print(sym_env e, sym s)
 	if (!s) return;
 
 	switch (s->type) {
+	case SYM_NULL:
+		break;
 	case SYM_NEGATIVE:
 		printf("-");
-		PRINT_PARENTHESIZED(s->a);
+		print(s->a);
 		break;
 	case SYM_CONSTANT:
 		switch (s->constant) {
@@ -33,84 +47,84 @@ sym_print(sym_env e, sym s)
 		break;
 	case SYM_ABS:
 		printf("\\left|");
-		sym_print(e, s->a);
+		print(s->a);
 		printf("\\right|");
 		break;
 	case SYM_LOGARITHM:
 		if (s->a->type == SYM_CONSTANT
 		    && s->a->constant == CONST_E) {
-			printf("\\ln");
+			printf("\\ln ");
 		} else {
 			printf("\\log_{");
-			sym_print(e, s->a);
+			print(s->a);
 			printf("}");
 		}
 
-		printf("\\left(");
-		sym_print(e, s->b);
-		printf("\\right)");
+		if (weird(s->b)) paren(s->b);
+		else print(s->b);
 		break;
 	case SYM_DERIVATIVE:
 		printf("\\frac{d}{d%s}{", s->wrt);
-		sym_print(e, s->deriv);
+		print(s->deriv);
 		printf("}");
 		break;
 	case SYM_PRODUCT:
-		PRINT_PARENTHESIZED(s->a);
-		if (s->b->type != SYM_POWER
-		    || (s->b->type == SYM_POWER
-		        && s->b->a->type != SYM_INDETERMINATE)) {
+		if (weird(s->a)
+		    && s->a->type != SYM_PRODUCT
+		    && s->a->type != SYM_POWER)
+			paren(s->a);
+		else print(s->a);
+
+		if ((weird(s->a) && !weird(s->b))
+		    || (s->a->type == SYM_PRODUCT
+		        && s->a->b->type == SYM_NUM)) {
 			printf("\\cdot ");
 		}
-		PRINT_PARENTHESIZED(s->b);
+
+		print(s->b);
 		break;
 	case SYM_CROSS:
-		PRINT_PARENTHESIZED(s->a);
+		print(s->a);
 		printf("\\times");
-		PRINT_PARENTHESIZED(s->b);
+		print(s->b);
 		break;
 	case SYM_SUM:
-		sym_print(e, s->a);
+		print(s->a);
 		printf("+");
-		sym_print(e, s->b);
+		print(s->b);
 		break;
 	case SYM_DIFFERENCE:
-		sym_print(e, s->a);
+		print(s->a);
 		printf("-");
-		PRINT_PARENTHESIZED(s->b);
+		print(s->b);
 		break;
 	case SYM_POWER:
 		printf("{");
 
-		if (s->a->type != SYM_INDETERMINATE) {
-			printf("\\left(");
-			sym_print(e, s->a);
-			printf("\\right)");
-		} else {
-			sym_print(e, s->a);
-		}
+		if (weird(s->a)) paren(s->a);
+		else print(s->a);
 
 		printf("}^{");
-		sym_print(e, s->b);
+		print(s->b);
 		printf("}");
 		break;
 	case SYM_SUBSCRIPT:
 		printf("{");
-		sym_print(e, s->a);
+		print(s->a);
 		printf("}_{");
-		sym_print(e, s->b);
+		print(s->b);
 		printf("}");
 		break;
 	case SYM_EQUALITY:
 		printf("{");
-		sym_print(e, s->a);
+		print(s->a);
 		printf("=");
-		sym_print(e, s->b);
+		print(s->b);
 		printf("}");
 		break;
 	case SYM_RATIO:
-		printf("\\frac{"), sym_print(e, s->a);
-		printf("}{"), sym_print(e, s->b);
+		printf("\\frac{"), print(s->a);
+		printf("}{"), print(s->b);
 		printf("}");
 		break;
 	case SYM_VARIABLE:
@@ -123,13 +137,13 @@ sym_print(sym_env e, sym s)
 		struct polynomial *c = s->polynomial;
 
 		while (c) {
-			sym_print(e, c->coefficient);
+			print(c->coefficient);
 
 			printf(strlen(s->indeterminate) != 1
 			       ? "\\text{%s}^{" : "%s^{",
 			       s->indeterminate);
 
-			sym_print(e, c->exponent);
+			print(c->exponent);
 			printf("}");
 			c = c->next;
 			if (c) printf("+");
@@ -137,10 +151,12 @@ sym_print(sym_env e, sym s)
 	} break;
 	case SYM_VECTOR: {
 		printf("<");
+
 		for (unsigned i = 0; i < s->len; i++) {
-			sym_print(e, s->vector[i]);
+			print(s->vector[i]);
 			if (i != s->len - 1) printf(" ");
 		}
+
 		printf(">");
 	} break;
 	case SYM_NUM: {
@@ -179,7 +195,7 @@ sym_print(sym_env e, sym s)
 
 		if (r) putchar('.');
 
-		int i = 0;
+		unsigned i = 0;
 
 		while (!math_uzero(r) && i < e->precision) {
 			num tmp = NULL, tmp2 = NULL;

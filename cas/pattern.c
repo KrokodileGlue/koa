@@ -4,6 +4,7 @@
 #include <stdio.h>
 
 #include "pattern.h"
+#include "util.h"
 
 struct sym *
 sym_replace(sym_env env, struct map *m, const sym s)
@@ -39,9 +40,12 @@ sym_map_set(sym_env env, struct map *m, const char *x, sym s)
 static bool
 match(sym_env env, struct map *m, const sym a, const sym b)
 {
+	/* printf("a = "), sym_print(env, a), puts(""); */
+	/* printf("b = "), sym_print(env, b), puts(""); */
+
 	if (a->type == SYM_INDETERMINATE) {
 		struct sym *lookup = sym_match_lookup(env, m, a->text);
-		if (lookup && !sym_cmp(env, lookup, b))
+		if (lookup && sym_cmp(env, lookup, b))
 			return false;
 		sym_map_set(env, m, a->text, sym_copy(env, b));
 		return true;
@@ -71,6 +75,7 @@ sym_match(sym_env env, const sym a, const sym b)
 struct sym *
 sym_match_lookup(sym_env env, struct map *m, const char *x)
 {
+	(void)env;
 	for (int i = 0; i < m->len; i++)
 		if (!strcmp(m->indeterminate[i], x))
 			return m->symb[i];

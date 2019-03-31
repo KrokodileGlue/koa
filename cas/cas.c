@@ -9,6 +9,7 @@
 #include "derivative.h"
 #include "arithmetic.h"
 #include "simplify.h"
+#include "util.h"
 #include "cas.h"
 
 sym
@@ -100,11 +101,25 @@ int sym_hist_add(enum priority prio,
 }
 
 int
-sym_cmp(sym_env e, sym a, sym b)
+sym_cmp(sym_env e, const sym a, const sym b)
 {
 	(void)e;                /* Suppress warning. */
+
+	if (a->type != b->type) return 1;
+
+	if (a->type == SYM_INDETERMINATE)
+		return strcmp(a->text, b->text);
+
+	if (a->type == SYM_CONSTANT)
+		return a->constant != b->constant;
+
+	if (binary(a))
+		return sym_cmp(e, a->a, b->a)
+			|| sym_cmp(e, a->b, b->b);
+
+	/* Too lazy to implement this properly. */
 	if (a->type != SYM_NUM || b->type != SYM_NUM)
-		return false;
+		return 1;
 
 	while (math_ucmp(a->exp, b->exp) < 0) {
  		math_uinc(&a->exp);
@@ -424,7 +439,7 @@ sym_div_(sym_env e, const sym a, const sym b)
 	math_udiv(a->sig, b->sig, &q->sig, &r);
 
 	do {
-		r = math_umul(r, &(struct num){0,&(struct num){1,0},0});
+		r = math_umul(r, &(struct num){0,&(struct num){1,0,0},0});
 		num tmp = NULL, d = NULL;
 		math_udiv(r, b->sig, &d, &tmp);
 		r = tmp;
@@ -562,8 +577,8 @@ sym_gcf(sym_env e, sym a, sym b)
 	if (a->type != SYM_NUM || b->type != SYM_NUM)
 		return NULL;
 
-	if (math_ucmp(a->exp, &(struct num){1,0}) > 0
-	 || math_ucmp(b->exp, &(struct num){1,0}) > 0)
+	if (math_ucmp(a->exp, &(struct num){1,0,0}) > 0
+	    || math_ucmp(b->exp, &(struct num){1,0,0}) > 0)
 		return NULL;
 
 	sym A = sym_copy(e, a), B = sym_copy(e, b);
@@ -642,7 +657,7 @@ sym_print_history(sym_env env)
 	puts("\\usepackage{amsmath}");
 	puts("\\begin{document}");
 
-	for (int i = 0; i < env->hist_len; i++) {
+	for (unsigned i = 0; i < env->hist_len; i++) {
 		puts(env->hist[i].msg);
 		if (!env->hist[i].result) continue;
 		puts("\\begin{equation}");
@@ -656,6 +671,7 @@ sym_print_history(sym_env env)
 sym
 sym_factor(sym_env e, const sym s)
 {
+	(void)e, (void)s;
 	return NULL;
 }
 

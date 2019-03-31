@@ -1,10 +1,12 @@
-#include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
 
 #include "derivative.h"
 #include "arithmetic.h"
 #include "pattern.h"
 #include "latex.h"
+#include "util.h"
 
 #define MAX_RULE_LEN 100
 
