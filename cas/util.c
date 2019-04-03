@@ -2,7 +2,7 @@
 #include "cas.h"
 
 bool
-binary(const sym s)
+binary(const struct sym *s)
 {
 	switch (s->type) {
 	case SYM_RATIO:
@@ -21,7 +21,7 @@ binary(const sym s)
 }
 
 bool
-unary(const sym s)
+unary(const struct sym *s)
 {
 	switch (s->type) {
 	case SYM_DERIVATIVE:
@@ -34,7 +34,7 @@ unary(const sym s)
 }
 
 bool
-sym_is_zero(sym s)
+sym_is_zero(const struct sym *s)
 {
 	if (s->type != SYM_NUM) return false;
 	return math_uzero(s->sig);

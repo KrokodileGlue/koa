@@ -9,46 +9,43 @@
 #include "cas.h"
 
 sym
-sym_eval(sym_env e, sym s, enum priority prio)
+sym_eval(sym_env e, const struct sym *s, enum priority prio)
 {
 	if (!s) return NULL;
-	s = sym_simplify(e, s);
+	struct sym *S = sym_simplify(e, s);
 
-	if (s->type == SYM_NUM) return sym_copy(e, s);
+	if (S->type == SYM_NUM) return S;
 
-	switch (s->type) {
+	switch (S->type) {
 	case SYM_SUM:
-		s = sym_add(e, sym_eval(e, s->a, prio), sym_eval(e, s->b, prio));
+		S = sym_add(e, sym_eval(e, S->a, prio), sym_eval(e, S->b, prio));
 		break;
 	case SYM_DIFFERENCE:
-		s = sym_sub(e, sym_eval(e, s->a, prio), sym_eval(e, s->b, prio));
+		S = sym_sub(e, sym_eval(e, S->a, prio), sym_eval(e, S->b, prio));
 		break;
 	case SYM_CROSS:
 	case SYM_PRODUCT:
-		s = sym_mul(e, sym_eval(e, s->a, prio), sym_eval(e, s->b, prio));
+		S = sym_mul(e, sym_eval(e, S->a, prio), sym_eval(e, S->b, prio));
 		break;
 	case SYM_RATIO: {
-		bool sign = s->sign;
-		sym a = sym_eval(e, s->a, prio);
-		sym b = sym_eval(e, s->b, prio);
-		s = sym_div(e, a, b);
-		if (!sign) s->sign = !s->sign;
-		return s;
+		sym a = sym_eval(e, S->a, prio);
+		sym b = sym_eval(e, S->b, prio);
+		S = sym_div(e, a, b);
 	} break;
 	case SYM_POWER:
-		s = sym_root(e, s->a, s->b);
+		S = sym_root(e, S->a, S->b);
 		break;
 	case SYM_INDETERMINATE:
 	case SYM_NUM:
-		s = sym_copy(e, s);
+		S = sym_copy(e, S);
 		break;
 	case SYM_VECTOR:
-		for (unsigned i = 0; i < s->len; i++)
-			s->vector[i] = sym_eval(e, s->vector[i], prio);
+		for (unsigned i = 0; i < S->len; i++)
+			S->vector[i] = sym_eval(e, S->vector[i], prio);
 		break;
 	default:
 		assert(false);
 	}
 
-	return s;
+	return S;
 }

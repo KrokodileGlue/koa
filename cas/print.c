@@ -27,8 +27,15 @@ weird(const sym s)
 	return false;
 }
 
+static bool
+ends_in_number(sym s)
+{
+	while (binary(s)) s = s->b;
+	return s->type == SYM_NUM;
+}
+
 void
-sym_print(sym_env e, sym s)
+sym_print(sym_env e, const struct sym *s)
 {
 	if (!s) return;
 
@@ -64,11 +71,18 @@ sym_print(sym_env e, sym s)
 		else print(s->b);
 		break;
 	case SYM_DERIVATIVE:
-		printf("\\frac{d}{d%s}{", s->wrt);
+		printf("\\frac{d}{d%s}\\left(", s->wrt);
 		print(s->deriv);
-		printf("}");
+		printf("\\right)");
 		break;
 	case SYM_PRODUCT:
+		if ((s->a->type == SYM_RATIO
+		     || s->a->type == SYM_NUM)
+		    && s->b->type == SYM_INDETERMINATE) {
+			print(s->a), print(s->b);
+			break;
+		}
+
 		if (weird(s->a)
 		    && s->a->type != SYM_PRODUCT
 		    && s->a->type != SYM_POWER)
@@ -76,12 +90,14 @@ sym_print(sym_env e, sym s)
 		else print(s->a);
 
 		if ((weird(s->a) && !weird(s->b))
+		    || ends_in_number(s->a)
 		    || (s->a->type == SYM_PRODUCT
 		        && s->a->b->type == SYM_NUM)) {
 			printf("\\cdot ");
 		}
 
-		print(s->b);
+		if (weird(s->b)) paren(s->b);
+		else print(s->b);
 		break;
 	case SYM_CROSS:
 		print(s->a);
@@ -99,6 +115,23 @@ sym_print(sym_env e, sym s)
 		print(s->b);
 		break;
 	case SYM_POWER:
+		if (s->b->type == SYM_RATIO
+		    && !sym_cmp(e, s->b->a, DIGIT(1))) {
+			if (!sym_cmp(e, s->b->b, DIGIT(2))) {
+				printf("\\sqrt{");
+				print(s->a);
+				printf("}");
+				break;
+			}
+
+			printf("\\sqrt[");
+			print(s->b->b);
+			printf("]{");
+			print(s->a);
+			printf("}");
+			break;
+		}
+
 		printf("{");
 
 		if (weird(s->a)) paren(s->a);

@@ -12,7 +12,7 @@ struct num {
 
 typedef struct num *num;
 
-#define DIGIT(X) &(struct sym){SYM_NUM,1,.sig=&(struct num){X,0,0},0}
+#define DIGIT(X) &(struct sym){SYM_NUM,.sig=&(struct num){X,0,0},0}
 
 num math_uadd(num a, num b);
 num math_usub(num a, num b);

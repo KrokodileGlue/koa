@@ -2,10 +2,13 @@
 #include <string.h>
 #include <stdlib.h>
 
+#include "antiderivative.h"
 #include "derivative.h"
 #include "simplify.h"
 #include "pattern.h"
 #include "latex.h"
+#include "print.h"
+#include "eval.h"
 #include "cas.h"
 
 #define LINE_BUFFER_LENGTH 10000
@@ -105,6 +108,15 @@ line(sym_env env)
 		sym_print(env, sym_simplify(env, sym_differentiate(env, s, x))), puts("");
 		sym_free(env, s);
 	} break;
+	case 'I': {
+		char x[2] = {0};
+		x[0] = l[1];
+		s = sym_parse_latex2(env, l + 2);
+		sym_print(env, s), puts("");
+		sym_print(env, sym_simplify(env, sym_integrate(env, s, x)));
+		puts("");
+		sym_free(env, s);
+	} break;
 	default:
 		s = sym_parse_latex(env, &(const char *){l});
 		sym_print(env, sym_eval(env, s, PRIO_ANSWER)), puts("");
@@ -116,6 +128,6 @@ line(sym_env env)
 
 int main(void)
 {
-	sym_env env = sym_env_new(0, 10);
+	sym_env env = sym_env_new(PRIO_ALGEBRA, 10);
 	while (line(env));
 }

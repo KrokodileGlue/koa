@@ -5,8 +5,11 @@
 #include "derivative.h"
 #include "arithmetic.h"
 #include "pattern.h"
+#include "print.h"
 #include "latex.h"
 #include "util.h"
+
+/* TODO: Priorities are wrong. */
 
 #define MAX_RULE_LEN 100
 
@@ -17,9 +20,11 @@ static struct derivative {
 	{ "c", "0", NULL, NULL },
 	{ "cu", "c\\frac{d}{dx}u", NULL, NULL },
 	{ "uv", "(\\frac{d}{dx}u)v+u\\frac{d}{dx}v", NULL, NULL },
+	{ "u/c", "(1/c)\\frac{d}{dx}u", NULL, NULL },
 	{ "u/v", "((\\frac{d}{dx}u)v-u\\frac{d}{dx}v)/(v^2)", NULL, NULL },
 	{ "u+v", "\\frac{d}{dx}u+\\frac{d}{dx}v", NULL, NULL },
 	{ "u-v", "\\frac{d}{dx}u-\\frac{d}{dx}v", NULL, NULL },
+	{ "u=v", "\\frac{d}{dx}u=\\frac{d}{dx}v", NULL, NULL },
 	{ "e^u", "e^u*\\frac{d}{dx}u", NULL, NULL },
 	{ "c^u", "(\\ln c)c^u\\frac{d}{dx}u", NULL, NULL },
 	{ "u^n", "nu^(n-1)*\\frac{d}{dx}u", NULL, NULL },
@@ -61,38 +66,58 @@ sym_is_function_of(sym_env env, const sym s, const char *x)
 	return false;
 }
 
-static sym
-sym_do_derivatives(sym_env env, const sym s, const char *x)
+static void
+differentiate(sym_env env,
+              sym *s,
+              const char *x,
+              const sym *original);
+
+static void
+sym_do_derivatives(sym_env env,
+                   sym *s,
+                   const char *x,
+                   const sym *original)
 {
-	struct sym *r = sym_copy(env, s);
-
-	if (binary(r)) {
-		r->a = sym_do_derivatives(env, r->a, x);
-		r->b = sym_do_derivatives(env, r->b, x);
+	if (binary(*s)) {
+		sym_do_derivatives(env, &(*s)->a, x, original);
+		sym_do_derivatives(env, &(*s)->b, x, original);
 	}
 
-	if (r->type == SYM_DERIVATIVE && !strcmp(s->wrt, x))
-		return sym_differentiate(env, s->deriv, s->wrt);
-
-	if (unary(r)) {
-		r->a = sym_do_derivatives(env, r->a, x);
+	if ((*s)->type == SYM_DERIVATIVE && !strcmp((*s)->wrt, x)) {
+		char *wrt = (*s)->wrt;
+		*s = (*s)->deriv;
+		differentiate(env, s, wrt, original);
+		return;
 	}
 
-	return r;
+	if (unary(*s)) {
+		sym_do_derivatives(env, &(*s)->a, x, original);
+	}
 }
 
-sym
-sym_differentiate(sym_env env, const sym s, const char *x)
+static void
+differentiate(sym_env env,
+              sym *s,
+              const char *x,
+              const sym *original)
 {
-	if (s->type == SYM_INDETERMINATE && !strcmp(s->text, x))
-		return sym_copy(env, DIGIT(1));
+	if ((*s)->type == SYM_INDETERMINATE
+	    && !strcmp((*s)->text, x)) {
+		*s = sym_copy(env, DIGIT(1));
+		return;
+	} else if ((*s)->type == SYM_INDETERMINATE) {
+		char buf[32];
+		sprintf(buf, "\\frac{d}{dx}{%s}", (*s)->text);
+		*s = sym_parse_latex2(env, buf);
+		return;
+	}
 
 	sym ind = sym_new(env, SYM_INDETERMINATE);
 	ind->text = malloc(strlen(x) + 1);
 	strcpy(ind->text, x);
 
 	for (size_t i = 0; i < sizeof rules / sizeof *rules; i++) {
-		struct map *m = sym_match(env, rules[i].A, s);
+		struct map *m = sym_match(env, rules[i].A, *s);
 		if (!m) continue;
 
 		if (sym_match_lookup(env, m, "c")
@@ -100,9 +125,22 @@ sym_differentiate(sym_env env, const sym s, const char *x)
 			continue;
 
 		sym_map_set(env, m, "x", ind);
-		struct sym *ret = sym_replace(env, m, rules[i].B);
-		return sym_do_derivatives(env, ret, x);
-	}
+		*s = sym_replace(env, m, rules[i].B);
 
-	return NULL;
+		sym_hist_add(PRIO_ALGEBRA, env, *original,
+		             "Differentiate $%s\\Rightarrow %s$",
+		             rules[i].a, rules[i].b);
+
+		sym_do_derivatives(env, s, x, original);
+		return;
+	}
+}
+
+sym
+sym_differentiate(sym_env env, const sym s, const char *x)
+{
+	sym_hist_add(PRIO_ALGEBRA, env, s, "Differentiate:");
+	sym ret = sym_copy(env, s);
+	differentiate(env, &ret, x, &ret);
+	return ret;
 }

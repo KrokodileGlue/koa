@@ -5,6 +5,6 @@
 #include "cas.h"
 #include "arithmetic.h"
 
-bool binary(const sym s);
-bool unary(const sym s);
-bool sym_is_zero(sym s);
+bool binary(const struct sym *s);
+bool unary(const struct sym *s);
+bool sym_is_zero(const struct sym *s);

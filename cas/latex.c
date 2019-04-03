@@ -97,7 +97,23 @@ parse(sym_env env, const char **s, int prec)
 
 	unsigned i = 0;
 
-	if (**s == '<') {
+	if (!strncmp(*s, "\\sqrt", 5)) {
+		*s += 5;
+		a = sym_new(env, SYM_POWER);
+		a->b = sym_new(env, SYM_RATIO);
+		a->b->a = sym_parse_latex2(env, "1");
+
+		if (**s == '[') {
+			(*s)++;
+			a->b->b = parse(env, s, 0);
+			if (**s != ']') puts("error"), exit(1);
+			(*s)++;
+		} else {
+			a->b->b = sym_parse_latex2(env, "2");
+		}
+
+		a->a = parse(env, s, 6);
+	} else if (**s == '<') {
 		a = sym_new(env, SYM_VECTOR);
 		(*s)++;
 		while (1) {
@@ -211,24 +227,16 @@ parse(sym_env env, const char **s, int prec)
 	}
 
 	while (prec < get_prec(*s, prec) || (!get_infix_op(*s) && **s)) {
-		int flag = 0;
 		struct op *op = get_infix_op(*s);
 		if (!op) {
-			flag = 1;
 			op = get_infix_op("*");
 			if (prec >= op->prec) break;
 		} else {
 			*s += strlen(op->body);
 		}
 
-		const char *x = *s;
 		sym tmp = parse(env, s, op->ass == LEFT ? op->prec : op->prec - 1);
-
 		if (!tmp) break;
-		/* if (tmp->type == SYM_NUM && flag) { */
-		/* 	*s = x; */
-		/* 	break; */
-		/* } */
 
 		sym b = sym_new(env, SYM_RATIO);
 		b->a = a;
@@ -258,7 +266,7 @@ sym
 sym_parse_number(sym_env env, const char **s)
 {
 	num x = NULL, exp = NULL;
-	_Bool sign = true, dec = false;
+	_Bool dec = false;
 
 	while (**s && isspace(**s)) (*s)++;
 
@@ -279,7 +287,7 @@ sym_parse_number(sym_env env, const char **s)
 	math_unorm(&x), math_unorm(&exp);
 
 	sym a = sym_new(env, SYM_NUM);
-	a->sig = x, a->exp = exp, a->sign = sign;
+	a->sig = x, a->exp = exp;
 
 	return a;
 }
